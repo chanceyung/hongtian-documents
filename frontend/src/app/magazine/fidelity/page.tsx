@@ -59,33 +59,46 @@ export default function FidelityPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">保真校验报告</h1>
-
-      <FidelityReport
-        score={report.fidelity_score}
-        passed={report.fidelity_passed}
-        l1Score={report.fidelity_passed ? 1.0 : 0.85}
-        l2Score={report.fidelity_passed ? 1.0 : 0.90}
-        l3Score={report.fidelity_score}
-        issues={[]}
-      />
-
-      <div className="mt-6 flex items-center gap-4 text-sm text-gray-500">
-        <span>修复次数: {report.repair_count}</span>
-        <span>素材补充: {report.supplemented ? '是' : '否'}</span>
-      </div>
-
-      {report.fidelity_passed && (
-        <div className="mt-8">
-          <a
-            href={`/api/magazine/export/${taskId}?format=pdf`}
-            className="inline-block px-6 py-3 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors"
-          >
-            下载生成的文档
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+          <a href="/magazine" className="flex items-center gap-2 text-brand-600 hover:text-brand-700">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            返回杂志页
           </a>
+          <h1 className="text-lg font-semibold text-gray-900">保真校验报告</h1>
+          <div className="w-20" />
         </div>
-      )}
+      </header>
+
+      <main className="max-w-4xl mx-auto px-4 py-8">
+        <FidelityReport
+          score={report.fidelity_score}
+          passed={report.fidelity_passed}
+          l1Score={report.fidelity_passed ? 1.0 : 0.85}
+          l2Score={report.fidelity_passed ? 1.0 : 0.90}
+          l3Score={report.fidelity_score}
+          issues={[]}
+        />
+
+        <div className="mt-6 flex items-center gap-4 text-sm text-gray-500">
+          <span>修复次数: {report.repair_count}</span>
+          <span>素材补充: {report.supplemented ? '是' : '否'}</span>
+        </div>
+
+        {report.fidelity_passed && (
+          <div className="mt-8">
+            <a
+              href={`/api/magazine/export/${taskId}?format=pdf`}
+              className="btn-primary"
+            >
+              下载生成的文档
+            </a>
+          </div>
+        )}
+      </main>
     </div>
   )
 }
