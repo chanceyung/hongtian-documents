@@ -90,7 +90,7 @@ export default function MagazinePage() {
 
     setStatus('processing')
     setProgress(0)
-    setStatusMsg('上传文档中...')
+    setStatusMsg('启动生成任务...')
     setSelectedTemplate(selectedTpl)
     setOutputFormat(format)
 
@@ -100,14 +100,23 @@ export default function MagazinePage() {
         setExportUrl(null)
       }
 
-      const resp = await magazineApi.status(magazineTask.id)
-      if (resp.data?.status === 'completed') {
-        setStatus('completed')
-        setProgress(100)
-        setStatusMsg('已完成')
-        setTaskId(magazineTask.id)
-        return
-      }
+      // 先检查是否已完成
+      try {
+        const existingResp = await magazineApi.status(magazineTask.id)
+        if (existingResp.data?.status === 'completed') {
+          setStatus('completed')
+          setProgress(100)
+          setStatusMsg('已完成')
+          setTaskId(magazineTask.id)
+          return
+        }
+      } catch { /* task may not exist yet */ }
+
+      // 调用 generate 端点启动 pipeline
+      await magazineApi.generate(magazineTask.id, {
+        outputFormat: format,
+        templateId: selectedTpl,
+      })
 
       setTaskId(magazineTask.id)
       setStatusMsg('等待处理...')

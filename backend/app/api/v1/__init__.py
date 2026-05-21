@@ -24,7 +24,7 @@ MAX_FILE_SIZE = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 class GenerateRequest(BaseModel):
     task_id: str
-    session_id: str
+    session_id: str = ""
     output_format: str = "pdf"
     template_id: str = "modern_tech"
 
@@ -48,6 +48,7 @@ def _get_task_dir(task_id: str) -> Path:
 @router.post("/upload")
 async def upload_document(
     background_tasks: BackgroundTasks,
+    request: Request,
     file: UploadFile = File(...),
 ):
     allowed = {".pptx", ".pdf", ".docx", ".xlsx", ".md", ".txt"}
@@ -68,12 +69,15 @@ async def upload_document(
     file_path = task_dir / f"source{ext}"
     file_path.write_bytes(content)
 
+    # 从 query param 或 header 获取 session_id
+    session_id = request.query_params.get("session_id") or request.headers.get("X-Session-ID") or task_id
+
     _tasks[task_id] = TaskStatus(
         task_id=task_id, status="pending", progress=0.0,
     )
 
-    background_tasks.add_task(_run_pipeline, task_id, file_path)
-    return {"task_id": task_id, "status": "pending"}
+    background_tasks.add_task(_run_pipeline, task_id, file_path, session_id)
+    return {"task_id": task_id, "status": "pending", "session_id": session_id}
 
 
 def _validate_file_signature(content: bytes, ext: str, filename: str) -> None:
@@ -137,7 +141,46 @@ async def export_file(task_id: str, format: str = "pdf"):
     )
 
 
-async def _run_pipeline(task_id: str, file_path: Path):
+@router.post("/generate")
+async def generate_magazine(
+    req: GenerateRequest,
+    background_tasks: BackgroundTasks,
+):
+    task = _tasks.get(req.task_id)
+    if not task:
+        raise HTTPException(404, "任务不存在，请先上传文件")
+
+    if task.status not in ("pending", "failed"):
+        raise HTTPException(400, f"任务状态为 {task.status}，无法重新生成")
+
+    task_dir = _get_task_dir(req.task_id)
+    source_files = list(task_dir.glob("source.*"))
+    if not source_files:
+        raise HTTPException(404, "源文件不存在")
+
+    session_id = req.session_id or req.task_id
+    task.status = "pending"
+    task.progress = 0.0
+    task.message = ""
+
+    background_tasks.add_task(
+        _run_pipeline,
+        req.task_id,
+        source_files[0],
+        session_id,
+        req.output_format,
+        req.template_id,
+    )
+    return {"task_id": req.task_id, "status": "pending"}
+
+
+async def _run_pipeline(
+    task_id: str,
+    file_path: Path,
+    session_id: str,
+    output_format: str = "pdf",
+    template_id: str = "modern_tech",
+):
     from app.workflow.magazine_pipeline import build_magazine_pipeline
 
     task = _tasks[task_id]
@@ -149,9 +192,9 @@ async def _run_pipeline(task_id: str, file_path: Path):
 
         result = await pipeline.ainvoke({
             "file_path": str(file_path),
-            "session_id": task_id,
-            "output_format": "pptx",
-            "template_id": "modern_tech",
+            "session_id": session_id,
+            "output_format": output_format,
+            "template_id": template_id,
             "repair_count": 0,
         })
 

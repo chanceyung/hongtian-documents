@@ -3,12 +3,14 @@
 import { useCallback, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { magazineApi } from '@/lib/api'
+import { useAppStore } from '@/lib/store'
 
 interface FileUploadProps {
   onUploadSuccess: (taskData: any) => void
 }
 
 export default function FileUpload({ onUploadSuccess }: FileUploadProps) {
+  const { sessionId } = useAppStore()
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -22,7 +24,7 @@ export default function FileUpload({ onUploadSuccess }: FileUploadProps) {
     setError(null)
 
     try {
-      const response = await magazineApi.upload(file)
+      const response = await magazineApi.upload(file, sessionId)
       setUploadProgress(100)
 
       const taskData = {
