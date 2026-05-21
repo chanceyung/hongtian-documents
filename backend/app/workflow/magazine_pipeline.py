@@ -29,13 +29,14 @@ class PipelineState(TypedDict, total=False):
 
 
 async def _get_api_key(session_id: str) -> str:
+    from app.api.router import decrypt_key
     from app.core.redis import redis_client
 
     redis = redis_client.client
     encrypted = await redis.hget(f"api_keys:{session_id}", "zhipu_key")
     if not encrypted:
         raise ValueError("未配置智谱 API Key，请先在设置中配置")
-    return encrypted if isinstance(encrypted, str) else encrypted.decode()
+    return decrypt_key(encrypted)
 
 
 async def parser_node(state: PipelineState) -> dict:

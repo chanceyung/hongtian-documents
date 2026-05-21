@@ -1,7 +1,7 @@
+"""Markdown 解析 — markdown-it-py + regex 降级"""
 import hashlib
 import re
 from pathlib import Path
-from typing import Any
 
 from app.models.unified_document import (
     UnifiedDocument,
@@ -12,20 +12,15 @@ from app.models.unified_document import (
 
 
 class MdParser:
-    _HEADING_PATTERN = re.compile(r"^#{1,6}\s+(.+)$", re.MULTILINE)
+    _HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
     _IMAGE_PATTERN = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
     _TABLE_PATTERN = re.compile(r"(\|.+\|\n\|[-:| ]+\|\n(?:\|.+\|\n)*)")
 
-    def __init__(self):
-        self._session_id = ""
-        self._assets_dir: Path | None = None
-        self._base_dir: Path | None = None
-
     async def parse(self, path: Path, session_id: str) -> UnifiedDocument:
-        self._session_id = session_id
-        self._assets_dir = path.parent / "assets" / session_id
-        self._assets_dir.mkdir(parents=True, exist_ok=True)
-        self._base_dir = path.parent
+        assets_dir = path.parent / "assets" / session_id
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        base_dir = path.parent
+        warnings: list[str] = []
 
         content = path.read_text(encoding="utf-8")
 
@@ -33,11 +28,11 @@ class MdParser:
             import markdown_it
             md = markdown_it.MarkdownIt("commonmark", {"html": True}).enable("table")
             tokens = md.parse(content)
-            texts, tables = await self._parse_tokens(tokens)
+            texts, tables = self._parse_tokens(tokens)
         except ImportError:
-            texts, tables = await self._parse_with_regex(content)
+            texts, tables = self._parse_with_regex(content)
 
-        images = await self._extract_images(content)
+        images = self._extract_images(content, base_dir, assets_dir, warnings)
 
         return UnifiedDocument(
             source_file=str(path),
@@ -46,99 +41,112 @@ class MdParser:
             texts=texts,
             images=images,
             tables=tables,
-            parse_warnings=[],
-            metadata={
-                "total_texts": len(texts),
-                "total_images": len(images),
-                "total_tables": len(tables),
-                "session_id": session_id,
-            },
+            parse_warnings=warnings,
         )
 
-    async def _parse_tokens(
-        self, tokens
-    ) -> tuple[list[TextElement], list[TableElement]]:
-        texts = []
-        tables = []
+    def _parse_tokens(self, tokens) -> tuple[list[TextElement], list[TableElement]]:
+        texts: list[TextElement] = []
+        tables: list[TableElement] = []
+        i = 0
 
-        for token in tokens:
+        while i < len(tokens):
+            token = tokens[i]
             if token.type == "heading_open":
                 level = int(token.tag[1])
-                inline_token = self._find_next_inline(tokens, tokens.index(token))
-                if inline_token and inline_token.content:
-                    fingerprint = hashlib.md5(inline_token.content.encode("utf-8")).hexdigest()
-                    texts.append(
-                        TextElement(
+                i += 1
+                if i < len(tokens) and tokens[i].type == "inline":
+                    text = tokens[i].content.strip()
+                    if text:
+                        texts.append(TextElement(
                             id=f"md_heading_{len(texts)}",
-                            content=inline_token.content,
+                            content=text,
                             page=0,
                             level=level,
-                            fingerprint=fingerprint,
-                        )
-                    )
+                            fingerprint=hashlib.md5(text.encode()).hexdigest(),
+                        ))
             elif token.type == "paragraph_open":
-                inline_token = self._find_next_inline(tokens, tokens.index(token))
-                if inline_token and inline_token.content:
-                    fingerprint = hashlib.md5(inline_token.content.encode("utf-8")).hexdigest()
-                    texts.append(
-                        TextElement(
-                            id=f"md_paragraph_{len(texts)}",
-                            content=inline_token.content,
+                i += 1
+                if i < len(tokens) and tokens[i].type == "inline":
+                    text = tokens[i].content.strip()
+                    if text:
+                        texts.append(TextElement(
+                            id=f"md_para_{len(texts)}",
+                            content=text,
                             page=0,
                             level=0,
-                            fingerprint=fingerprint,
-                        )
-                    )
-
-        return texts, tables
-
-    def _find_next_inline(self, tokens, start_idx):
-        for token in tokens[start_idx:]:
-            if token.type == "inline":
-                return token
-            elif token.type == "heading_close":
-                break
-        return None
-
-    async def _parse_with_regex(
-        self, content: str
-    ) -> tuple[list[TextElement], list[TableElement]]:
-        texts = []
-        tables = []
-
-        for match in self._HEADING_PATTERN.finditer(content):
-            level = len(match.group(1).split()[0])
-            text = match.group(1).lstrip("#").strip()
-            fingerprint = hashlib.md5(text.encode("utf-8")).hexdigest()
-
-            texts.append(
-                TextElement(
-                    id=f"md_heading_{len(texts)}",
-                    content=text,
-                    page=0,
-                    level=level,
-                    fingerprint=fingerprint,
-                )
-            )
-
-        for match in self._TABLE_PATTERN.finditer(content):
-            table_text = match.group(0)
-            headers, data = self._parse_markdown_table(table_text)
-
-            if headers or data:
-                table_hash = hashlib.md5(
-                    str(headers + data).encode("utf-8")
-                ).hexdigest()
-
-                tables.append(
-                    TableElement(
+                            fingerprint=hashlib.md5(text.encode()).hexdigest(),
+                        ))
+            elif token.type == "table_open":
+                headers, data, i = self._parse_flat_table(tokens, i)
+                if headers or data:
+                    tables.append(TableElement(
                         id=f"md_table_{len(tables)}",
                         page=0,
                         data=data,
                         headers=headers,
-                        hash=table_hash,
-                    )
-                )
+                    ))
+                continue
+            i += 1
+
+        return texts, tables
+
+    def _parse_flat_table(
+        self, tokens: list, start: int,
+    ) -> tuple[list[str], list[list[str]], int]:
+        headers: list[str] = []
+        rows: list[list[str]] = []
+        current_row: list[str] = []
+        in_header = False
+        i = start + 1
+
+        while i < len(tokens):
+            t = tokens[i]
+            if t.type == "table_close":
+                i += 1
+                break
+            elif t.type == "thead_open":
+                in_header = True
+            elif t.type == "thead_close":
+                in_header = False
+            elif t.type == "tr_open":
+                current_row = []
+            elif t.type == "tr_close":
+                if in_header:
+                    headers = current_row
+                else:
+                    rows.append(current_row)
+                current_row = []
+            elif t.type == "inline":
+                current_row.append(t.content.strip())
+            i += 1
+
+        return headers, rows, i
+
+    def _parse_with_regex(self, content: str) -> tuple[list[TextElement], list[TableElement]]:
+        texts: list[TextElement] = []
+        tables: list[TableElement] = []
+
+        for match in self._HEADING_PATTERN.finditer(content):
+            level = len(match.group(1))
+            text = match.group(2).strip()
+            texts.append(TextElement(
+                id=f"md_heading_{len(texts)}",
+                content=text,
+                page=0,
+                level=level,
+                fingerprint=hashlib.md5(text.encode()).hexdigest(),
+            ))
+
+        for match in self._TABLE_PATTERN.finditer(content):
+            table_text = match.group(0)
+            headers, data = self._parse_markdown_table(table_text)
+            if headers or data:
+                tables.append(TableElement(
+                    id=f"md_table_{len(tables)}",
+                    page=0,
+                    data=data,
+                    headers=headers,
+                ))
 
         return texts, tables
 
@@ -147,16 +155,8 @@ class MdParser:
         if len(lines) < 2:
             return [], []
 
-        if not lines[1].startswith("|") or not lines[1].endswith("|"):
-            return [], []
-
-        separator = lines[1][1:-1].strip()
-        if not all(c in "|-:" for c in separator):
-            return [], []
-
         headers = self._parse_table_row(lines[0])
         data = [self._parse_table_row(line) for line in lines[2:]]
-
         return headers, data
 
     def _parse_table_row(self, row: str) -> list[str]:
@@ -164,49 +164,40 @@ class MdParser:
             cells = row[1:-1].split("|")
         else:
             cells = row.split("|")
-
         return [cell.strip() for cell in cells]
 
-    async def _extract_images(self, content: str) -> list[ImageElement]:
-        images = []
+    def _extract_images(
+        self, content: str, base_dir: Path, assets_dir: Path, warnings: list[str],
+    ) -> list[ImageElement]:
+        images: list[ImageElement] = []
 
         for match in self._IMAGE_PATTERN.finditer(content):
             alt_text = match.group(1)
-            img_path = match.group(2)
+            img_ref = match.group(2)
 
-            if img_path.startswith(("http://", "https://")):
-                UnifiedDocument.parse_warnings.append(
-                    f"External image skipped: {img_path}"
-                )
+            if img_ref.startswith(("http://", "https://")):
+                warnings.append(f"External image skipped: {img_ref}")
                 continue
 
-            full_path = self._base_dir / img_path
+            full_path = base_dir / img_ref
             if not full_path.exists():
-                UnifiedDocument.parse_warnings.append(
-                    f"Image file not found: {full_path}"
-                )
+                warnings.append(f"Image not found: {full_path}")
                 continue
 
             try:
-                image_data = full_path.read_bytes()
-                image_hash = hashlib.md5(image_data).hexdigest()
+                img_bytes = full_path.read_bytes()
+                img_hash = hashlib.md5(img_bytes).hexdigest()[:12]
+                target = assets_dir / full_path.name
+                target.write_bytes(img_bytes)
 
-                filename = full_path.name
-                target_path = self._assets_dir / filename
-                target_path.write_bytes(image_data)
-
-                images.append(
-                    ImageElement(
-                        id=f"md_image_{len(images)}",
-                        local_path=str(target_path.relative_to(target_path.parent.parent.parent)),
-                        page=0,
-                        hash=image_hash,
-                        alt_text=alt_text,
-                    )
-                )
+                images.append(ImageElement(
+                    id=f"md_img_{len(images)}",
+                    local_path=str(target),
+                    page=0,
+                    hash=img_hash,
+                    alt_text=alt_text,
+                ))
             except Exception as e:
-                UnifiedDocument.parse_warnings.append(
-                    f"Failed to save image {img_path}: {e}"
-                )
+                warnings.append(f"Image copy failed: {e}")
 
         return images

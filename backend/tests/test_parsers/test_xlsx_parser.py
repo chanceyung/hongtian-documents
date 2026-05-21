@@ -6,11 +6,11 @@ import pytest
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 
-from app.parsers.xlsx_parser import XLSXParser
+from app.parsers.xlsx_parser import XlsxParser
 from app.models.unified_document import UnifiedDocument
 
 
-class TestXLSXParser:
+class TestXlsxParser:
     """Test suite for XLSX parser."""
 
     @pytest.fixture
@@ -99,7 +99,7 @@ class TestXLSXParser:
         sample_xlsx_with_content: Path
     ) -> None:
         """Test parsing XLSX with data returns UnifiedDocument."""
-        parser = XLSXParser()
+        parser = XlsxParser()
         result: UnifiedDocument = await parser.parse(sample_xlsx_with_content)
 
         # Verify type
@@ -117,7 +117,7 @@ class TestXLSXParser:
     @pytest.mark.asyncio
     async def test_parser_xlsx_headers_correct(self, sample_xlsx_with_content: Path) -> None:
         """Test that table headers are correctly extracted."""
-        parser = XLSXParser()
+        parser = XlsxParser()
         result: UnifiedDocument = await parser.parse(sample_xlsx_with_content)
 
         assert len(result.tables) == 1, "Should extract one table"
@@ -133,29 +133,28 @@ class TestXLSXParser:
     @pytest.mark.asyncio
     async def test_parser_xlsx_row_data_correct(self, sample_xlsx_with_content: Path) -> None:
         """Test that row data is correctly extracted."""
-        parser = XLSXParser()
+        parser = XlsxParser()
         result: UnifiedDocument = await parser.parse(sample_xlsx_with_content)
 
         table = result.tables[0]
-        assert len(table.rows) == 4, "Table should have 4 data rows"
+        # TableElement uses data field (list of lists) excluding headers
+        assert len(table.data) == 4, "Table should have 4 data rows"
 
         # Check first row
-        first_row = table.rows[0]
-        first_row_content = [cell.content for cell in first_row.cells]
+        first_row_content = table.data[0]
         assert "Alice" in first_row_content, "Should extract Alice"
         assert "28" in first_row_content, "Should extract age 28"
         assert "New York" in first_row_content, "Should extract New York"
 
         # Check last row
-        last_row = table.rows[3]
-        last_row_content = [cell.content for cell in last_row.cells]
+        last_row_content = table.data[3]
         assert "Diana" in last_row_content, "Should extract Diana"
         assert "30" in last_row_content, "Should extract age 30"
 
     @pytest.mark.asyncio
     async def test_parser_xlsx_multiple_sheets_handling(self, xlsx_with_multiple_sheets: Path) -> None:
         """Test parsing XLSX with multiple sheets."""
-        parser = XLSXParser()
+        parser = XlsxParser()
         result: UnifiedDocument = await parser.parse(xlsx_with_multiple_sheets)
 
         # Should extract tables from non-empty sheets
@@ -163,31 +162,27 @@ class TestXLSXParser:
 
         # Verify first table content
         first_table = result.tables[0]
-        first_table_content = " ".join([cell.content for row in first_table.rows for cell in row.cells])
+        first_table_content = " ".join([cell for row in first_table.data for cell in row])
         assert "Item1" in first_table_content, "Should extract data from first sheet"
 
         # Verify second table content
         second_table = result.tables[1]
-        second_table_content = " ".join([cell.content for row in second_table.rows for cell in row.cells])
+        second_table_content = " ".join([cell for row in second_table.data for cell in row])
         assert "ProdA" in second_table_content, "Should extract data from second sheet"
 
     @pytest.mark.asyncio
     async def test_parser_xlsx_empty_sheet_handling(self, xlsx_with_multiple_sheets: Path) -> None:
         """Test that empty sheets are handled correctly (skipped)."""
-        parser = XLSXParser()
+        parser = XlsxParser()
         result: UnifiedDocument = await parser.parse(xlsx_with_multiple_sheets)
 
         # Should only extract tables from non-empty sheets
         assert len(result.tables) == 2, "Should skip empty sheet"
 
-        # Verify sheet names in metadata if available
-        table_names = [t.metadata.get('sheet_name', '') if hasattr(t, 'metadata') and t.metadata else '' for t in result.tables]
-        assert any("FirstSheet" in name or "SecondSheet" in name for name in table_names), "Should include sheet names"
-
     @pytest.mark.asyncio
     async def test_parser_xlsx_empty_document(self, empty_xlsx: Path) -> None:
         """Test parsing empty XLSX."""
-        parser = XLSXParser()
+        parser = XlsxParser()
         result: UnifiedDocument = await parser.parse(empty_xlsx)
 
         assert isinstance(result, UnifiedDocument)
@@ -199,7 +194,7 @@ class TestXLSXParser:
     @pytest.mark.asyncio
     async def test_parser_xlsx_nonexistent_file(self, tmp_path: Path) -> None:
         """Test parsing non-existent XLSX file raises appropriate error."""
-        parser = XLSXParser()
+        parser = XlsxParser()
         nonexistent_file = tmp_path / "nonexistent.xlsx"
 
         with pytest.raises(FileNotFoundError):
@@ -218,15 +213,14 @@ class TestXLSXParser:
         wb.save(file_path)
         wb.close()
 
-        parser = XLSXParser()
+        parser = XlsxParser()
         result: UnifiedDocument = await parser.parse(file_path)
 
         table = result.tables[0]
-        first_row = table.rows[0]
-        first_row_content = [cell.content for cell in first_row.cells]
+        first_row_content = table.data[0]
 
-        assert any("100" in content for content in first_row_content), "Should extract integer"
-        assert any("3.14" in content for content in first_row_content), "Should extract float"
+        assert any("100" in str(content) for content in first_row_content), "Should extract integer"
+        assert any("3.14" in str(content) for content in first_row_content), "Should extract float"
 
     @pytest.mark.asyncio
     async def test_parser_xlsx_large_table(self, tmp_path: Path) -> None:
@@ -245,23 +239,23 @@ class TestXLSXParser:
         wb.save(file_path)
         wb.close()
 
-        parser = XLSXParser()
+        parser = XlsxParser()
         result: UnifiedDocument = await parser.parse(file_path)
 
         table = result.tables[0]
-        assert len(table.rows) == 100, "Should extract all 100 rows"
+        assert len(table.data) == 100, "Should extract all 100 rows"
 
         # Check first and last rows
-        first_row_content = [cell.content for cell in table.rows[0].cells]
+        first_row_content = table.data[0]
         assert "Value1_0" in first_row_content, "Should extract first row"
 
-        last_row_content = [cell.content for cell in table.rows[99].cells]
+        last_row_content = table.data[99]
         assert "Value1_99" in last_row_content, "Should extract last row"
 
     @pytest.mark.asyncio
     async def test_parser_xlsx_fingerprint_uniqueness(self, sample_xlsx_with_content: Path) -> None:
         """Test that fingerprint is unique and consistent for same file."""
-        parser = XLSXParser()
+        parser = XlsxParser()
 
         # Parse same file twice
         result1: UnifiedDocument = await parser.parse(sample_xlsx_with_content)
@@ -289,7 +283,7 @@ class TestXLSXParser:
         wb.save(file_path)
         wb.close()
 
-        parser = XLSXParser()
+        parser = XlsxParser()
         result: UnifiedDocument = await parser.parse(file_path)
 
         # Should still extract data

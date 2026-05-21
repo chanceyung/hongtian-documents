@@ -1,4 +1,4 @@
-"""解析结果缓存 — 避免重复解析同一文件"""
+"""解析结果缓存 — Redis 不可用时自动跳过"""
 import hashlib
 import json
 from pathlib import Path
@@ -8,8 +8,6 @@ from app.models.unified_document import UnifiedDocument
 
 
 class ParseCache:
-    """基于 Redis 的解析结果缓存，TTL 1 小时"""
-
     TTL = 3600
     PREFIX = "parse_cache:"
 
@@ -21,23 +19,36 @@ class ParseCache:
 
     @staticmethod
     async def get(file_path: Path) -> UnifiedDocument | None:
-        redis = redis_client.client
-        key = ParseCache._cache_key(file_path)
-        cached = await redis.get(key)
-        if not cached:
+        if not redis_client.available:
             return None
-
-        data = json.loads(cached)
-        return UnifiedDocument.model_validate(data)
+        try:
+            redis = redis_client.client
+            key = ParseCache._cache_key(file_path)
+            cached = await redis.get(key)
+            if not cached:
+                return None
+            return UnifiedDocument.model_validate(json.loads(cached))
+        except Exception:
+            return None
 
     @staticmethod
     async def set(file_path: Path, doc: UnifiedDocument) -> None:
-        redis = redis_client.client
-        key = ParseCache._cache_key(file_path)
-        await redis.set(key, doc.model_dump_json(), ex=ParseCache.TTL)
+        if not redis_client.available:
+            return
+        try:
+            redis = redis_client.client
+            key = ParseCache._cache_key(file_path)
+            await redis.set(key, doc.model_dump_json(), ex=ParseCache.TTL)
+        except Exception:
+            pass
 
     @staticmethod
     async def invalidate(file_path: Path) -> None:
-        redis = redis_client.client
-        key = ParseCache._cache_key(file_path)
-        await redis.delete(key)
+        if not redis_client.available:
+            return
+        try:
+            redis = redis_client.client
+            key = ParseCache._cache_key(file_path)
+            await redis.delete(key)
+        except Exception:
+            pass

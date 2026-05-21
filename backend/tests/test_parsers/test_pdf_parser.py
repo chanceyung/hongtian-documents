@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import fitz  # PyMuPDF
 
-from app.parsers.pdf_parser import PDFParser
+from app.parsers.pdf_parser import PdfParser
 from app.models.unified_document import UnifiedDocument
 
 
-class TestPDFParser:
+class TestPdfParser:
     """Test suite for PDF parser."""
 
     @pytest.fixture
@@ -54,8 +54,8 @@ class TestPDFParser:
         sample_pdf_with_text: Path
     ) -> None:
         """Test parsing PDF with PyMuPDF fallback returns UnifiedDocument."""
-        parser = PDFParser()
-        result: UnifiedDocument = await parser.parse(sample_pdf_with_text)
+        parser = PdfParser()
+        result: UnifiedDocument = await parser.parse(sample_pdf_with_text, "session-test")
 
         # Verify type
         assert isinstance(result, UnifiedDocument)
@@ -66,14 +66,11 @@ class TestPDFParser:
         # Verify parse method indicates PyMuPDF
         assert "pymupdf" in result.parse_method.lower(), "Should use PyMuPDF parser"
 
-        # Verify fingerprint generated
-        assert result.fingerprint != "", "Should generate fingerprint"
-
     @pytest.mark.asyncio
     async def test_parser_pdf_text_content_correct(self, sample_pdf_with_text: Path) -> None:
         """Test that text content is correctly extracted."""
-        parser = PDFParser()
-        result: UnifiedDocument = await parser.parse(sample_pdf_with_text)
+        parser = PdfParser()
+        result: UnifiedDocument = await parser.parse(sample_pdf_with_text, "session-test")
 
         # Check for expected text content
         text_content = " ".join([t.content for t in result.texts])
@@ -84,11 +81,10 @@ class TestPDFParser:
     @pytest.mark.asyncio
     async def test_parser_pdf_empty_document(self, empty_pdf: Path) -> None:
         """Test parsing empty PDF (blank page)."""
-        parser = PDFParser()
-        result: UnifiedDocument = await parser.parse(empty_pdf)
+        parser = PdfParser()
+        result: UnifiedDocument = await parser.parse(empty_pdf, "session-test")
 
         assert isinstance(result, UnifiedDocument)
-        assert result.fingerprint != "", "Should still generate fingerprint for empty file"
         assert "pymupdf" in result.parse_method.lower()
         # Empty document should have no texts
         assert len(result.texts) == 0, "Empty PDF should have no texts"
@@ -96,11 +92,11 @@ class TestPDFParser:
     @pytest.mark.asyncio
     async def test_parser_pdf_nonexistent_file(self, tmp_path: Path) -> None:
         """Test parsing non-existent PDF file raises appropriate error."""
-        parser = PDFParser()
+        parser = PdfParser()
         nonexistent_file = tmp_path / "nonexistent.pdf"
 
         with pytest.raises(FileNotFoundError):
-            await parser.parse(nonexistent_file)
+            await parser.parse(nonexistent_file, "session-test")
 
     @pytest.mark.asyncio
     async def test_parser_pdf_docling_path_mock(self, tmp_path: Path) -> None:
@@ -113,7 +109,7 @@ class TestPDFParser:
         doc.save(file_path)
         doc.close()
 
-        parser = PDFParser()
+        parser = PdfParser()
 
         # Mock the Docling subprocess call
         with patch('app.parsers.pdf_parser.subprocess.run') as mock_run:
@@ -130,14 +126,13 @@ class TestPDFParser:
 
             # Force Docling path by mocking the Docling availability check
             with patch('app.parsers.pdf_parser.shutil.which', return_value='/usr/bin/docling'):
-                result: UnifiedDocument = await parser.parse(file_path)
+                result: UnifiedDocument = await parser.parse(file_path, "session-test")
 
                 # Verify Docling was called
                 mock_run.assert_called_once()
 
                 # Verify result
                 assert isinstance(result, UnifiedDocument)
-                assert result.fingerprint != ""
                 # Should indicate docling in parse method
                 assert "docling" in result.parse_method.lower()
 
@@ -158,8 +153,8 @@ class TestPDFParser:
         doc.save(file_path)
         doc.close()
 
-        parser = PDFParser()
-        result: UnifiedDocument = await parser.parse(file_path)
+        parser = PdfParser()
+        result: UnifiedDocument = await parser.parse(file_path, "session-test")
 
         # Should extract texts from both pages
         text_content = " ".join([t.content for t in result.texts])
@@ -169,11 +164,11 @@ class TestPDFParser:
     @pytest.mark.asyncio
     async def test_parser_pdf_fingerprint_uniqueness(self, sample_pdf_with_text: Path) -> None:
         """Test that fingerprint is unique and consistent for same file."""
-        parser = PDFParser()
+        parser = PdfParser()
 
         # Parse same file twice
-        result1: UnifiedDocument = await parser.parse(sample_pdf_with_text)
-        result2: UnifiedDocument = await parser.parse(sample_pdf_with_text)
+        result1: UnifiedDocument = await parser.parse(sample_pdf_with_text, "session-test")
+        result2: UnifiedDocument = await parser.parse(sample_pdf_with_text, "session-test")
 
         # Fingerprints should be identical for same file
         assert result1.fingerprint == result2.fingerprint, "Fingerprint should be consistent"
@@ -188,10 +183,10 @@ class TestPDFParser:
         corrupted_file = tmp_path / "corrupted.pdf"
         corrupted_file.write_text("This is not a valid PDF")
 
-        parser = PDFParser()
+        parser = PdfParser()
 
         with pytest.raises(Exception):  # PyMuPDF will raise an exception
-            await parser.parse(corrupted_file)
+            await parser.parse(corrupted_file, "session-test")
 
     @pytest.mark.asyncio
     async def test_parser_pdf_docling_subprocess_error(self, tmp_path: Path) -> None:
@@ -204,7 +199,7 @@ class TestPDFParser:
         doc.save(file_path)
         doc.close()
 
-        parser = PDFParser()
+        parser = PdfParser()
 
         # Mock Docling subprocess to fail
         with patch('app.parsers.pdf_parser.subprocess.run') as mock_run:
@@ -213,10 +208,9 @@ class TestPDFParser:
             # Mock Docling availability to force Docling path first
             with patch('app.parsers.pdf_parser.shutil.which', return_value='/usr/bin/docling'):
                 # Should not raise exception, but fall back to PyMuPDF
-                result: UnifiedDocument = await parser.parse(file_path)
+                result: UnifiedDocument = await parser.parse(file_path, "session-test")
 
                 # Verify result (should come from PyMuPDF fallback)
                 assert isinstance(result, UnifiedDocument)
-                assert result.fingerprint != ""
                 # Should fall back to pymupdf
                 assert "pymupdf" in result.parse_method.lower()

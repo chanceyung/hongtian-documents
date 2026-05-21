@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from app.parsers.md_parser import MDParser
+from app.parsers.md_parser import MdParser
 from app.models.unified_document import UnifiedDocument
 
 
-class TestMDParser:
+class TestMdParser:
     """Test suite for Markdown parser."""
 
     @pytest.fixture
@@ -141,7 +141,7 @@ Complex table:
         sample_markdown_file: Path
     ) -> None:
         """Test parsing Markdown with headings, paragraphs, images, tables returns UnifiedDocument."""
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(sample_markdown_file)
 
         # Verify type
@@ -159,7 +159,7 @@ Complex table:
     @pytest.mark.asyncio
     async def test_parser_md_heading_level_1_recognition(self, sample_markdown_file: Path) -> None:
         """Test that heading level 1 is correctly recognized."""
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(sample_markdown_file)
 
         # Find heading with level 1
@@ -172,7 +172,7 @@ Complex table:
     @pytest.mark.asyncio
     async def test_parser_md_heading_level_2_recognition(self, sample_markdown_file: Path) -> None:
         """Test that heading level 2 is correctly recognized."""
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(sample_markdown_file)
 
         # Find headings with level 2
@@ -187,7 +187,7 @@ Complex table:
     @pytest.mark.asyncio
     async def test_parser_md_heading_level_3_recognition(self, sample_markdown_file: Path) -> None:
         """Test that heading level 3 is correctly recognized."""
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(sample_markdown_file)
 
         # Find heading with level 3
@@ -200,7 +200,7 @@ Complex table:
     @pytest.mark.asyncio
     async def test_parser_md_multiple_headings(self, markdown_with_multiple_headings: Path) -> None:
         """Test parsing Markdown with multiple headings of various levels."""
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(markdown_with_multiple_headings)
 
         # Count headings by level
@@ -217,7 +217,7 @@ Complex table:
     @pytest.mark.asyncio
     async def test_parser_md_image_reference_extraction(self, sample_markdown_file: Path) -> None:
         """Test that image references are extracted."""
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(sample_markdown_file)
 
         # Check that images are extracted (either in texts or separate images field)
@@ -227,7 +227,7 @@ Complex table:
     @pytest.mark.asyncio
     async def test_parser_md_multiple_image_references(self, markdown_with_images: Path) -> None:
         """Test parsing Markdown with multiple image references."""
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(markdown_with_images)
 
         # Should extract multiple images
@@ -242,52 +242,52 @@ Complex table:
     @pytest.mark.asyncio
     async def test_parser_md_table_extraction(self, sample_markdown_file: Path) -> None:
         """Test that table structure is correctly extracted."""
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(sample_markdown_file)
 
         assert len(result.tables) == 1, "Should extract exactly one table"
 
         table = result.tables[0]
         assert len(table.headers) == 3, "Table should have 3 headers"
-        assert len(table.rows) == 2, "Table should have 2 data rows"
+        # TableElement uses data field (list of lists), not rows
+        assert len(table.data) == 2, "Table should have 2 data rows"
 
         # Verify header content
-        header_texts = [h.content for h in table.headers]
-        assert "Column 1" in header_texts, "Should extract first header"
-        assert "Column 2" in header_texts, "Should extract second header"
-        assert "Column 3" in header_texts, "Should extract third header"
+        assert "Column 1" in table.headers[0], "Should extract first header"
+        assert "Column 2" in table.headers[1], "Should extract second header"
+        assert "Column 3" in table.headers[2], "Should extract third header"
 
-        # Verify row content
-        row_content = " ".join([cell.content for row in table.rows for cell in row.cells])
+        # Verify row content from data field
+        row_content = " ".join([cell for row in table.data for cell in row])
         assert "Data 1" in row_content, "Should extract first row data"
         assert "Data 6" in row_content, "Should extract last row data"
 
     @pytest.mark.asyncio
     async def test_parser_md_multiple_tables(self, markdown_with_tables: Path) -> None:
         """Test parsing Markdown with multiple tables."""
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(markdown_with_tables)
 
         assert len(result.tables) == 3, "Should extract all 3 tables"
 
         # Check first table
         first_table = result.tables[0]
-        first_table_content = " ".join([cell.content for row in first_table.rows for cell in row.cells])
+        first_table_content = " ".join([cell for row in first_table.data for cell in row])
         assert "Alice" in first_table_content, "Should extract first table data"
 
         # Check second table
         second_table = result.tables[1]
-        second_table_content = " ".join([cell.content for row in second_table.rows for cell in row.cells])
+        second_table_content = " ".join([cell for row in second_table.data for cell in row])
         assert "Apple" in second_table_content, "Should extract second table data"
 
         # Check third table (complex)
         third_table = result.tables[2]
-        assert len(third_table.rows) == 2, "Third table should have 2 rows"
+        assert len(third_table.data) == 2, "Third table should have 2 rows"
 
     @pytest.mark.asyncio
     async def test_parser_md_paragraph_extraction(self, sample_markdown_file: Path) -> None:
         """Test that paragraph content is correctly extracted."""
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(sample_markdown_file)
 
         # Check for expected paragraph content
@@ -299,7 +299,7 @@ Complex table:
     @pytest.mark.asyncio
     async def test_parser_md_empty_file(self, empty_markdown_file: Path) -> None:
         """Test parsing empty Markdown file."""
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(empty_markdown_file)
 
         assert isinstance(result, UnifiedDocument)
@@ -312,7 +312,7 @@ Complex table:
     @pytest.mark.asyncio
     async def test_parser_md_nonexistent_file(self, tmp_path: Path) -> None:
         """Test parsing non-existent Markdown file raises appropriate error."""
-        parser = MDParser()
+        parser = MdParser()
         nonexistent_file = tmp_path / "nonexistent.md"
 
         with pytest.raises(FileNotFoundError):
@@ -332,7 +332,7 @@ Here's a [link](https://example.com) and `code`.
         file_path = tmp_path / "formatting.md"
         file_path.write_text(content, encoding='utf-8')
 
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(file_path)
 
         text_content = " ".join([t.content for t in result.texts])
@@ -346,7 +346,7 @@ Here's a [link](https://example.com) and `code`.
     @pytest.mark.asyncio
     async def test_parser_md_fingerprint_uniqueness(self, sample_markdown_file: Path) -> None:
         """Test that fingerprint is unique and consistent for same file."""
-        parser = MDParser()
+        parser = MdParser()
 
         # Parse same file twice
         result1: UnifiedDocument = await parser.parse(sample_markdown_file)
@@ -377,7 +377,7 @@ echo "Shell command"
         file_path = tmp_path / "code.md"
         file_path.write_text(content, encoding='utf-8')
 
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(file_path)
 
         text_content = " ".join([t.content for t in result.texts])
@@ -402,7 +402,7 @@ Ordered list:
         file_path = tmp_path / "lists.md"
         file_path.write_text(content, encoding='utf-8')
 
-        parser = MDParser()
+        parser = MdParser()
         result: UnifiedDocument = await parser.parse(file_path)
 
         text_content = " ".join([t.content for t in result.texts])

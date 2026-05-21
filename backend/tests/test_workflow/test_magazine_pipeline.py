@@ -2,7 +2,8 @@
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from app.models import UnifiedDocument, MagazineEditPlan, FidelityReport, MagazineState
+from app.models import UnifiedDocument, MagazineEditPlan, SlideEditPlan
+from app.agents.fidelity_agent import FidelityResult as FidelityReport
 from app.workflow.magazine_pipeline import build_magazine_pipeline, should_repair, check_missing_assets_node
 
 
@@ -10,10 +11,11 @@ from app.workflow.magazine_pipeline import build_magazine_pipeline, should_repai
 def sample_unified_document():
     """Create sample UnifiedDocument for testing."""
     return UnifiedDocument(
+        source_file="test.pptx",
+        source_format="pptx",
         title="Test Document",
-        content=[],
-        images=[],
-        metadata={"format": "pptx"}
+        texts=[],
+        images=[]
     )
 
 
@@ -21,8 +23,9 @@ def sample_unified_document():
 def sample_edit_plan():
     """Create sample MagazineEditPlan for testing."""
     return MagazineEditPlan(
-        template="modern",
-        actions=[]
+        document_id="test-doc",
+        template_id="modern",
+        pages=[]
     )
 
 
@@ -35,8 +38,7 @@ def sample_fidelity_report_passed():
         linkage_score=1.0,
         semantic_score=0.95,
         passed=True,
-        details={},
-        repair_suggestions=[]
+        details={}
     )
 
 
@@ -49,8 +51,7 @@ def sample_fidelity_report_failed():
         linkage_score=0.6,
         semantic_score=0.7,
         passed=False,
-        details={"missing_items": ["text-1"]},
-        repair_suggestions=["Add missing text"]
+        details={}
     )
 
 
@@ -92,16 +93,15 @@ class TestShouldRepair:
     def test_should_repair_fidelity_passed_false_repair_count_below_limit(self):
         """Test that should_repair returns 'repair' when fidelity fails and repair count < MAX_REPAIR_ATTEMPTS."""
         state = MagazineState(
-            unified_document=UnifiedDocument(title="Test", content=[], images=[], metadata={}),
-            edit_plan=MagazineEditPlan(template="modern", actions=[]),
+            unified_document=UnifiedDocument(source_file="test.pptx", source_format="pptx", title="Test", texts=[], images=[]),
+            edit_plan=MagazineEditPlan(document_id="test-doc", template_id="modern", pages=[]),
             fidelity_report=FidelityReport(
                 overall_score=0.7,
                 fingerprint_score=0.8,
                 linkage_score=0.6,
                 semantic_score=0.7,
                 passed=False,
-                details={},
-                repair_suggestions=[]
+                details={}
             ),
             repair_count=1,  # Below MAX_REPAIR_ATTEMPTS (which is typically 2)
             error=None
@@ -114,16 +114,15 @@ class TestShouldRepair:
     def test_should_repair_fidelity_passed_false_repair_count_at_limit(self):
         """Test that should_repair returns 'finalize' when fidelity fails but repair count >= MAX_REPAIR_ATTEMPTS."""
         state = MagazineState(
-            unified_document=UnifiedDocument(title="Test", content=[], images=[], metadata={}),
-            edit_plan=MagazineEditPlan(template="modern", actions=[]),
+            unified_document=UnifiedDocument(source_file="test.pptx", source_format="pptx", title="Test", texts=[], images=[]),
+            edit_plan=MagazineEditPlan(document_id="test-doc", template_id="modern", pages=[]),
             fidelity_report=FidelityReport(
                 overall_score=0.7,
                 fingerprint_score=0.8,
                 linkage_score=0.6,
                 semantic_score=0.7,
                 passed=False,
-                details={},
-                repair_suggestions=[]
+                details={}
             ),
             repair_count=2,  # At MAX_REPAIR_ATTEMPTS
             error=None
@@ -136,16 +135,15 @@ class TestShouldRepair:
     def test_should_repair_fidelity_passed_true(self):
         """Test that should_repair returns 'finalize' when fidelity passes."""
         state = MagazineState(
-            unified_document=UnifiedDocument(title="Test", content=[], images=[], metadata={}),
-            edit_plan=MagazineEditPlan(template="modern", actions=[]),
+            unified_document=UnifiedDocument(source_file="test.pptx", source_format="pptx", title="Test", texts=[], images=[]),
+            edit_plan=MagazineEditPlan(document_id="test-doc", template_id="modern", pages=[]),
             fidelity_report=FidelityReport(
                 overall_score=0.98,
                 fingerprint_score=1.0,
                 linkage_score=1.0,
                 semantic_score=0.95,
                 passed=True,
-                details={},
-                repair_suggestions=[]
+                details={}
             ),
             repair_count=0,
             error=None
@@ -158,16 +156,15 @@ class TestShouldRepair:
     def test_should_repair_edge_case_exactly_at_threshold(self):
         """Test should_repair behavior at exactly MAX_REPAIR_ATTEMPTS - 1."""
         state = MagazineState(
-            unified_document=UnifiedDocument(title="Test", content=[], images=[], metadata={}),
-            edit_plan=MagazineEditPlan(template="modern", actions=[]),
+            unified_document=UnifiedDocument(source_file="test.pptx", source_format="pptx", title="Test", texts=[], images=[]),
+            edit_plan=MagazineEditPlan(document_id="test-doc", template_id="modern", pages=[]),
             fidelity_report=FidelityReport(
                 overall_score=0.5,
                 fingerprint_score=0.5,
                 linkage_score=0.5,
                 semantic_score=0.5,
                 passed=False,
-                details={},
-                repair_suggestions=[]
+                details={}
             ),
             repair_count=1,  # One below MAX_REPAIR_ATTEMPTS (2)
             error=None
@@ -185,22 +182,22 @@ class TestCheckMissingAssetsNode:
     @pytest.mark.asyncio
     async def test_check_missing_assets_node_missing_images(self):
         """Test that check_missing_assets_node routes to 'supplement' when images are missing."""
-        from app.models import ImageItem
+        from app.models import ImageElement, BoundingBox
 
         state = MagazineState(
             unified_document=UnifiedDocument(
+                source_file="test.pptx",
+                source_format="pptx",
                 title="Test",
-                content=[],
+                texts=[],
                 images=[
-                    ImageItem(id="img-1", path="", page_number=1, bbox=[0, 0, 1, 1], description="")
-                ],
-                metadata={}
+                    ImageElement(id="img-1", local_path="", page=1, bbox=BoundingBox(left=0, top=0, width=1, height=1), alt_text="")
+                ]
             ),
             edit_plan=MagazineEditPlan(
-                template="modern",
-                actions=[
-                    # Replace action for missing image
-                ]
+                document_id="test-doc",
+                template_id="modern",
+                pages=[]
             ),
             fidelity_report=None,
             repair_count=0,
@@ -215,20 +212,22 @@ class TestCheckMissingAssetsNode:
     @pytest.mark.asyncio
     async def test_check_missing_assets_node_all_images_exist(self):
         """Test that check_missing_assets_node routes to 'render' when all images exist."""
-        from app.models import ImageItem
+        from app.models import ImageElement, BoundingBox
 
         state = MagazineState(
             unified_document=UnifiedDocument(
+                source_file="test.pptx",
+                source_format="pptx",
                 title="Test",
-                content=[],
+                texts=[],
                 images=[
-                    ImageItem(id="img-1", path="/existing/path.png", page_number=1, bbox=[0, 0, 1, 1], description="")
-                ],
-                metadata={}
+                    ImageElement(id="img-1", local_path="/existing/path.png", page=1, bbox=BoundingBox(left=0, top=0, width=1, height=1), alt_text="")
+                ]
             ),
             edit_plan=MagazineEditPlan(
-                template="modern",
-                actions=[]
+                document_id="test-doc",
+                template_id="modern",
+                pages=[]
             ),
             fidelity_report=None,
             repair_count=0,
@@ -245,14 +244,16 @@ class TestCheckMissingAssetsNode:
         """Test that check_missing_assets_node routes to 'render' when there are no images."""
         state = MagazineState(
             unified_document=UnifiedDocument(
+                source_file="test.pptx",
+                source_format="pptx",
                 title="Test",
-                content=[],
-                images=[],
-                metadata={}
+                texts=[],
+                images=[]
             ),
             edit_plan=MagazineEditPlan(
-                template="modern",
-                actions=[]
+                document_id="test-doc",
+                template_id="modern",
+                pages=[]
             ),
             fidelity_report=None,
             repair_count=0,
@@ -267,21 +268,23 @@ class TestCheckMissingAssetsNode:
     @pytest.mark.asyncio
     async def test_check_missing_assets_node_partial_missing(self):
         """Test check_missing_assets_node with some images missing and some present."""
-        from app.models import ImageItem
+        from app.models import ImageElement, BoundingBox
 
         state = MagazineState(
             unified_document=UnifiedDocument(
+                source_file="test.pptx",
+                source_format="pptx",
                 title="Test",
-                content=[],
+                texts=[],
                 images=[
-                    ImageItem(id="img-1", path="/existing.png", page_number=1, bbox=[0, 0, 0.5, 1], description=""),
-                    ImageItem(id="img-2", path="", page_number=1, bbox=[0.5, 0, 1, 1], description="")
-                ],
-                metadata={}
+                    ImageElement(id="img-1", local_path="/existing.png", page=1, bbox=BoundingBox(left=0, top=0, width=0.5, height=1), alt_text=""),
+                    ImageElement(id="img-2", local_path="", page=1, bbox=BoundingBox(left=0.5, top=0, width=1, height=1), alt_text="")
+                ]
             ),
             edit_plan=MagazineEditPlan(
-                template="modern",
-                actions=[]
+                document_id="test-doc",
+                template_id="modern",
+                pages=[]
             ),
             fidelity_report=None,
             repair_count=0,
@@ -302,10 +305,11 @@ class TestMagazinePipelineIntegration:
         """Test flow from parser to analyzer agent."""
         # Mock parser agent
         mock_parser = AsyncMock(return_value=UnifiedDocument(
+            source_file="test.pptx",
+            source_format="pptx",
             title="Test",
-            content=[],
-            images=[],
-            metadata={}
+            texts=[],
+            images=[]
         ))
 
         # Mock analyzer agent
@@ -337,16 +341,15 @@ class TestMagazinePipelineIntegration:
         """Test that repair loop respects MAX_REPAIR_ATTEMPTS."""
         # This tests the conditional edge logic
         state = MagazineState(
-            unified_document=UnifiedDocument(title="Test", content=[], images=[], metadata={}),
-            edit_plan=MagazineEditPlan(template="modern", actions=[]),
+            unified_document=UnifiedDocument(source_file="test.pptx", source_format="pptx", title="Test", texts=[], images=[]),
+            edit_plan=MagazineEditPlan(document_id="test-doc", template_id="modern", pages=[]),
             fidelity_report=FidelityReport(
                 overall_score=0.6,
                 fingerprint_score=0.6,
                 linkage_score=0.6,
                 semantic_score=0.6,
                 passed=False,
-                details={},
-                repair_suggestions=[]
+                details={}
             ),
             repair_count=2,  # At limit
             error=None
@@ -361,8 +364,8 @@ class TestMagazinePipelineIntegration:
     async def test_pipeline_error_handling(self):
         """Test that errors are properly propagated through the pipeline."""
         state = MagazineState(
-            unified_document=UnifiedDocument(title="Test", content=[], images=[], metadata={}),
-            edit_plan=MagazineEditPlan(template="modern", actions=[]),
+            unified_document=UnifiedDocument(source_file="test.pptx", source_format="pptx", title="Test", texts=[], images=[]),
+            edit_plan=MagazineEditPlan(document_id="test-doc", template_id="modern", pages=[]),
             fidelity_report=None,
             repair_count=0,
             error="Test error message"
@@ -379,9 +382,9 @@ class TestMagazineState:
         """Test that MagazineState can be initialized with all fields."""
         state = MagazineState(
             input_file="test.pptx",
-            unified_document=UnifiedDocument(title="Test", content=[], images=[], metadata={}),
+            unified_document=UnifiedDocument(source_file="test.pptx", source_format="pptx", title="Test", texts=[], images=[]),
             analysis_result=None,
-            edit_plan=MagazineEditPlan(template="modern", actions=[]),
+            edit_plan=MagazineEditPlan(document_id="test-doc", template_id="modern", pages=[]),
             fidelity_report=None,
             repair_count=0,
             error=None
@@ -398,8 +401,8 @@ class TestMagazineState:
     def test_magazine_state_with_error(self):
         """Test MagazineState with error set."""
         state = MagazineState(
-            unified_document=UnifiedDocument(title="Test", content=[], images=[], metadata={}),
-            edit_plan=MagazineEditPlan(template="modern", actions=[]),
+            unified_document=UnifiedDocument(source_file="test.pptx", source_format="pptx", title="Test", texts=[], images=[]),
+            edit_plan=MagazineEditPlan(document_id="test-doc", template_id="modern", pages=[]),
             fidelity_report=None,
             repair_count=0,
             error="Processing failed"

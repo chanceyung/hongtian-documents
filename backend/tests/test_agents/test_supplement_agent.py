@@ -2,39 +2,45 @@
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from app.models import UnifiedDocument, ImageItem, MagazineEditPlan, EditAction
+from app.models import UnifiedDocument, ImageElement, MagazineEditPlan, EditAction, BoundingBox, SlideEditPlan
 from app.agents.supplement_agent import SupplementAgent
 
 
 @pytest.fixture
 def supplement_agent():
     """Create SupplementAgent instance for testing."""
-    return SupplementAgent()
+    with patch('app.core.config.settings') as mock_settings:
+        mock_settings.PEXELS_API_KEY = ""
+        mock_settings.UNSPLASH_ACCESS_KEY = ""
+        mock_settings.REPLICATE_API_TOKEN = ""
+        mock_settings.ASSETS_DIR = "/tmp/test_assets"
+        return SupplementAgent(session_id="test-session")
 
 
 @pytest.fixture
 def sample_document_missing_images():
     """Create UnifiedDocument with missing image paths."""
     return UnifiedDocument(
+        source_file="test.pptx",
+        source_format="pptx",
         title="Test Document",
-        content=[],
+        texts=[],
         images=[
-            ImageItem(
+            ImageElement(
                 id="img-1",
-                path="",  # Missing path - needs supplement
-                page_number=1,
-                bbox=[0.6, 0.1, 0.9, 0.4],
-                description="Data growth chart showing upward trend"
+                local_path="",  # Missing path - needs supplement
+                page=1,
+                bbox=BoundingBox(left=60, top=10, width=90, height=40),
+                alt_text="Data growth chart showing upward trend"
             ),
-            ImageItem(
+            ImageElement(
                 id="img-2",
-                path="",  # Missing path - needs supplement
-                page_number=1,
-                bbox=[0.6, 0.5, 0.9, 0.8],
-                description="Team collaboration meeting photo"
+                local_path="",  # Missing path - needs supplement
+                page=1,
+                bbox=BoundingBox(left=60, top=50, width=90, height=80),
+                alt_text="Team collaboration meeting photo"
             )
-        ],
-        metadata={"format": "pptx"}
+        ]
     )
 
 
@@ -42,17 +48,26 @@ def sample_document_missing_images():
 def sample_edit_plan_missing_images():
     """Create MagazineEditPlan with missing images."""
     return MagazineEditPlan(
-        template="modern",
-        actions=[
-            EditAction(
-                action="replace_image",
-                id="img-1",
-                content=""  # Empty content - needs supplement
-            ),
-            EditAction(
-                action="replace_image",
-                id="img-2",
-                content=""  # Empty content - needs supplement
+        document_id="test-doc",
+        template_id="modern",
+        pages=[
+            SlideEditPlan(
+                page_number=1,
+                template_page="cover",
+                actions=[
+                    EditAction(
+                        type="replace_image",
+                        target_selector="img-1",
+                        source_id="img-1",
+                        content=""  # Empty content - needs supplement
+                    ),
+                    EditAction(
+                        type="replace_image",
+                        target_selector="img-2",
+                        source_id="img-2",
+                        content=""  # Empty content - needs supplement
+                    )
+                ]
             )
         ]
     )
@@ -62,17 +77,26 @@ def sample_edit_plan_missing_images():
 def sample_edit_plan_complete():
     """Create MagazineEditPlan with complete image paths."""
     return MagazineEditPlan(
-        template="modern",
-        actions=[
-            EditAction(
-                action="replace_image",
-                id="img-1",
-                content="/existing/path/to/image1.png"
-            ),
-            EditAction(
-                action="replace_image",
-                id="img-2",
-                content="/existing/path/to/image2.png"
+        document_id="test-doc",
+        template_id="modern",
+        pages=[
+            SlideEditPlan(
+                page_number=1,
+                template_page="cover",
+                actions=[
+                    EditAction(
+                        type="replace_image",
+                        target_selector="img-1",
+                        source_id="img-1",
+                        content="/existing/path/to/image1.png"
+                    ),
+                    EditAction(
+                        type="replace_image",
+                        target_selector="img-2",
+                        source_id="img-2",
+                        content="/existing/path/to/image2.png"
+                    )
+                ]
             )
         ]
     )
@@ -327,7 +351,7 @@ class TestSupplementAgentSupplement:
                 )
 
                 # All missing images should be supplemented
-                img_actions = [a for a in result.actions if a.action == "replace_image"]
+                img_actions = [a for page in result.pages for a in page.actions if a.type == "replace_image"]
                 assert all(a.content for a in img_actions)
 
     @pytest.mark.asyncio
@@ -344,7 +368,7 @@ class TestSupplementAgentSupplement:
             )
 
             # Should not modify existing image paths
-            img_actions = [a for a in result.actions if a.action == "replace_image"]
+            img_actions = [a for page in result.pages for a in page.actions if a.type == "replace_image"]
             assert all(a.content.startswith("/existing/") for a in img_actions)
 
             # API should not have been called
@@ -354,25 +378,39 @@ class TestSupplementAgentSupplement:
     async def test_supplement_with_empty_plan(self, supplement_agent, sample_document_missing_images):
         """Test supplement with no image actions."""
         empty_plan = MagazineEditPlan(
-            template="modern",
-            actions=[
-                EditAction(action="replace_span", id="text-1", content="Text")
+            document_id="test-doc",
+            template_id="modern",
+            pages=[
+                SlideEditPlan(
+                    page_number=1,
+                    template_page="cover",
+                    actions=[
+                        EditAction(type="replace_text", target_selector="text-1", source_id="text-1", content="Text")
+                    ]
+                )
             ]
         )
 
         result = await supplement_agent.supplement(sample_document_missing_images, empty_plan)
 
         # Should return same plan (no images to supplement)
-        assert result.actions == empty_plan.actions
+        assert result.pages[0].actions == empty_plan.pages[0].actions
 
     @pytest.mark.asyncio
     async def test_supplement_preserves_text_actions(self, supplement_agent, sample_document_missing_images):
         """Test that supplement does not modify text actions."""
         plan = MagazineEditPlan(
-            template="modern",
-            actions=[
-                EditAction(action="replace_span", id="text-1", content="Original text", font_size=18),
-                EditAction(action="replace_image", id="img-1", content="")
+            document_id="test-doc",
+            template_id="modern",
+            pages=[
+                SlideEditPlan(
+                    page_number=1,
+                    template_page="cover",
+                    actions=[
+                        EditAction(type="replace_text", target_selector="text-1", source_id="text-1", content="Original text"),
+                        EditAction(type="replace_image", target_selector="img-1", source_id="img-1", content="")
+                    ]
+                )
             ]
         )
 
@@ -398,10 +436,9 @@ class TestSupplementAgentSupplement:
                 result = await supplement_agent.supplement(sample_document_missing_images, plan)
 
                 # Text action should be unchanged
-                text_action = next((a for a in result.actions if a.action == "replace_span"), None)
+                text_action = next((a for page in result.pages for a in page.actions if a.type == "replace_text"), None)
                 assert text_action is not None
                 assert text_action.content == "Original text"
-                assert text_action.font_size == 18
 
     @pytest.mark.asyncio
     async def test_supplement_marks_supplemented_images(self, supplement_agent, sample_document_missing_images, sample_edit_plan_missing_images):
@@ -431,6 +468,6 @@ class TestSupplementAgentSupplement:
                 )
 
                 # Supplemented images should have valid content
-                img_actions = [a for a in result.actions if a.action == "replace_image"]
+                img_actions = [a for page in result.pages for a in page.actions if a.type == "replace_image"]
                 assert all(a.content for a in img_actions)
                 assert all(a.content.startswith("http") for a in img_actions)

@@ -42,24 +42,21 @@ def sample_text_content():
     return [
         {
             "id": "text-1",
-            "text": "Introduction to the document topic",
-            "type": "paragraph",
-            "page_number": 1,
-            "bbox": [0.1, 0.1, 0.5, 0.2]
+            "content": "Introduction to the document topic",
+            "page": 1,
+            "bbox": {"left": 10, "top": 10, "width": 50, "height": 20}
         },
         {
             "id": "text-2",
-            "text": "Main content with detailed information",
-            "type": "paragraph",
-            "page_number": 1,
-            "bbox": [0.1, 0.3, 0.5, 0.5]
+            "content": "Main content with detailed information",
+            "page": 1,
+            "bbox": {"left": 10, "top": 30, "width": 50, "height": 50}
         },
         {
             "id": "text-3",
-            "text": "Conclusion and key takeaways",
-            "type": "paragraph",
-            "page_number": 1,
-            "bbox": [0.1, 0.6, 0.5, 0.7]
+            "content": "Conclusion and key takeaways",
+            "page": 1,
+            "bbox": {"left": 10, "top": 60, "width": 50, "height": 70}
         }
     ]
 
@@ -70,17 +67,17 @@ def sample_image_content():
     return [
         {
             "id": "img-1",
-            "path": "/path/to/image1.png",
-            "page_number": 1,
-            "bbox": [0.6, 0.1, 0.9, 0.4],
-            "description": "First image showing data"
+            "local_path": "/path/to/image1.png",
+            "page": 1,
+            "bbox": {"left": 60, "top": 10, "width": 90, "height": 40},
+            "alt_text": "First image showing data"
         },
         {
             "id": "img-2",
-            "path": "/path/to/image2.png",
-            "page_number": 1,
-            "bbox": [0.6, 0.5, 0.9, 0.8],
-            "description": "Second image showing charts"
+            "local_path": "/path/to/image2.png",
+            "page": 1,
+            "bbox": {"left": 60, "top": 50, "width": 90, "height": 80},
+            "alt_text": "Second image showing charts"
         }
     ]
 

@@ -1,7 +1,6 @@
 """V4 杂志重构 API"""
 import uuid
 import json
-import struct
 from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks, HTTPException, Request

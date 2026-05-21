@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, mock_open
-from app.models import UnifiedDocument, MagazineEditPlan, EditAction
+from app.models import UnifiedDocument, MagazineEditPlan, EditAction, SlideEditPlan
 from app.agents.renderer_agent import RendererAgent
 
 
@@ -16,20 +16,26 @@ def renderer_agent():
 def sample_edit_plan():
     """Create sample MagazineEditPlan for testing."""
     return MagazineEditPlan(
-        template="modern",
-        actions=[
-            EditAction(
-                action="replace_span",
-                id="text-1",
-                content="Sample text content",
-                font_size=18,
-                color="#333333"
-            ),
-            EditAction(
-                action="replace_image",
-                id="img-1",
-                content="/path/to/image.png",
-                position=[0.1, 0.1, 0.3, 0.3]
+        document_id="test-doc",
+        template_id="modern",
+        pages=[
+            SlideEditPlan(
+                page_number=1,
+                template_page="cover",
+                actions=[
+                    EditAction(
+                        type="replace_text",
+                        target_selector="text-1",
+                        source_id="text-1",
+                        content="Sample text content"
+                    ),
+                    EditAction(
+                        type="replace_image",
+                        target_selector="img-1",
+                        source_id="img-1",
+                        content="/path/to/image.png"
+                    )
+                ]
             )
         ]
     )
@@ -118,10 +124,17 @@ class TestRendererAgentApplyEditActionsSvg:
     def test_apply_edit_actions_svg_multiple_actions(self, renderer_agent, sample_svg_content):
         """Test applying multiple edit actions."""
         plan = MagazineEditPlan(
-            template="modern",
-            actions=[
-                EditAction(action="replace_span", id="text-1", content="First text", font_size=18),
-                EditAction(action="replace_span", id="text-2", content="Second text", font_size=16)
+            document_id="test-doc",
+            template_id="modern",
+            pages=[
+                SlideEditPlan(
+                    page_number=1,
+                    template_page="cover",
+                    actions=[
+                        EditAction(type="replace_text", target_selector="text-1", source_id="text-1", content="First text"),
+                        EditAction(type="replace_text", target_selector="text-2", source_id="text-2", content="Second text")
+                    ]
+                )
             ]
         )
 
@@ -170,9 +183,16 @@ class TestRendererAgentFallbackSvg:
     def test_create_fallback_svg_generates_valid_svg(self, renderer_agent):
         """Test that fallback SVG is valid XML."""
         plan = MagazineEditPlan(
-            template="modern",
-            actions=[
-                EditAction(action="replace_span", id="text-1", content="Fallback content", font_size=16)
+            document_id="test-doc",
+            template_id="modern",
+            pages=[
+                SlideEditPlan(
+                    page_number=1,
+                    template_page="cover",
+                    actions=[
+                        EditAction(type="replace_text", target_selector="text-1", source_id="text-1", content="Fallback content")
+                    ]
+                )
             ]
         )
 
@@ -186,10 +206,17 @@ class TestRendererAgentFallbackSvg:
     def test_create_fallback_svg_includes_content(self, renderer_agent):
         """Test that fallback SVG includes content from edit plan."""
         plan = MagazineEditPlan(
-            template="modern",
-            actions=[
-                EditAction(action="replace_span", id="text-1", content="Test content for fallback"),
-                EditAction(action="replace_span", id="text-2", content="More content")
+            document_id="test-doc",
+            template_id="modern",
+            pages=[
+                SlideEditPlan(
+                    page_number=1,
+                    template_page="cover",
+                    actions=[
+                        EditAction(type="replace_text", target_selector="text-1", source_id="text-1", content="Test content for fallback"),
+                        EditAction(type="replace_text", target_selector="text-2", source_id="text-2", content="More content")
+                    ]
+                )
             ]
         )
 
@@ -202,8 +229,9 @@ class TestRendererAgentFallbackSvg:
     def test_create_fallback_svg_with_empty_plan(self, renderer_agent):
         """Test fallback SVG generation with empty plan."""
         empty_plan = MagazineEditPlan(
-            template="modern",
-            actions=[]
+            document_id="test-doc",
+            template_id="modern",
+            pages=[]
         )
 
         result = renderer_agent._create_fallback_svg(empty_plan)
@@ -215,8 +243,17 @@ class TestRendererAgentFallbackSvg:
     def test_create_fallback_svg_basic_structure(self, renderer_agent):
         """Test that fallback SVG has proper structure."""
         plan = MagazineEditPlan(
-            template="modern",
-            actions=[EditAction(action="replace_span", id="text-1", content="Test")]
+            document_id="test-doc",
+            template_id="modern",
+            pages=[
+                SlideEditPlan(
+                    page_number=1,
+                    template_page="cover",
+                    actions=[
+                        EditAction(type="replace_text", target_selector="text-1", source_id="text-1", content="Test")
+                    ]
+                )
+            ]
         )
 
         result = renderer_agent._create_fallback_svg(plan)
@@ -234,10 +271,11 @@ class TestRendererAgentRender:
     async def test_render_pdf_output(self, renderer_agent, sample_edit_plan):
         """Test rendering PDF output."""
         mock_doc = UnifiedDocument(
+            source_file="test.pptx",
+            source_format="pptx",
             title="Test",
-            content=[],
-            images=[],
-            metadata={}
+            texts=[],
+            images=[]
         )
 
         with patch('app.agents.renderer_agent.PlaywrightRenderer'):
@@ -249,10 +287,11 @@ class TestRendererAgentRender:
     async def test_render_pptx_output(self, renderer_agent, sample_edit_plan):
         """Test rendering PPTX output."""
         mock_doc = UnifiedDocument(
+            source_file="test.pptx",
+            source_format="pptx",
             title="Test",
-            content=[],
-            images=[],
-            metadata={}
+            texts=[],
+            images=[]
         )
 
         with patch('app.agents.renderer_agent.PPTXRenderer'):
@@ -264,10 +303,11 @@ class TestRendererAgentRender:
     async def test_render_unsupported_format(self, renderer_agent, sample_edit_plan):
         """Test rendering unsupported format raises error."""
         mock_doc = UnifiedDocument(
+            source_file="test.pptx",
+            source_format="pptx",
             title="Test",
-            content=[],
-            images=[],
-            metadata={}
+            texts=[],
+            images=[]
         )
 
         with pytest.raises(ValueError, match="Unsupported output format"):

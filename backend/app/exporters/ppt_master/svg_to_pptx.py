@@ -103,7 +103,7 @@ class SvgToPptxConverter:
 
         return SvgElement(
             tag=tag,
-            attrs=attrs,
+            attrs={**attrs, "_raw_element": element},
             x_emu=self._svg_to_emu(x, vb_w, int(12192000)),
             y_emu=self._svg_to_emu(y, vb_h, int(6858000)),
             width_emu=self._svg_to_emu(width, vb_w, int(12192000)),
@@ -194,12 +194,14 @@ class SvgToPptxConverter:
         text_frame = shape.text_frame
         text_frame.word_wrap = True
 
-        text_content = element.attrs.get("content", element.attrs.get("text", ""))
-        if not text_content and element.attrs.get("children"):
-            text_content = "".join(c.get_text() for c in element.attrs.get("children", []))
+        text_content = element.attrs.get("content", "")
+        if not text_content:
+            raw = element.attrs.get("_raw_element")
+            if raw is not None:
+                text_content = raw.get_text()
 
         p = text_frame.paragraphs[0]
-        p.text = text_content
+        p.text = text_content or ""
 
         font_size = float(element.attrs.get("font-size", 12))
         p.font.size = Pt(font_size)

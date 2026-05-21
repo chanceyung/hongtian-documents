@@ -7,11 +7,11 @@ from docx import Document
 from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-from app.parsers.docx_parser import DOCXParser
+from app.parsers.docx_parser import DocxParser
 from app.models.unified_document import UnifiedDocument
 
 
-class TestDOCXParser:
+class TestDocxParser:
     """Test suite for DOCX parser."""
 
     @pytest.fixture
@@ -73,7 +73,7 @@ class TestDOCXParser:
         sample_docx_with_content: Path
     ) -> None:
         """Test parsing DOCX with heading, paragraph and table returns UnifiedDocument."""
-        parser = DOCXParser()
+        parser = DocxParser()
         result: UnifiedDocument = await parser.parse(sample_docx_with_content)
 
         # Verify type
@@ -94,7 +94,7 @@ class TestDOCXParser:
     @pytest.mark.asyncio
     async def test_parser_docx_heading_level_1_recognition(self, sample_docx_with_content: Path) -> None:
         """Test that heading level 1 is correctly recognized."""
-        parser = DOCXParser()
+        parser = DocxParser()
         result: UnifiedDocument = await parser.parse(sample_docx_with_content)
 
         # Find heading with level 1
@@ -107,7 +107,7 @@ class TestDOCXParser:
     @pytest.mark.asyncio
     async def test_parser_docx_heading_level_2_recognition(self, sample_docx_with_content: Path) -> None:
         """Test that heading level 2 is correctly recognized."""
-        parser = DOCXParser()
+        parser = DocxParser()
         result: UnifiedDocument = await parser.parse(sample_docx_with_content)
 
         # Find heading with level 2
@@ -120,7 +120,7 @@ class TestDOCXParser:
     @pytest.mark.asyncio
     async def test_parser_docx_heading_level_3_recognition(self, sample_docx_with_content: Path) -> None:
         """Test that heading level 3 is correctly recognized."""
-        parser = DOCXParser()
+        parser = DocxParser()
         result: UnifiedDocument = await parser.parse(sample_docx_with_content)
 
         # Find heading with level 3
@@ -133,7 +133,7 @@ class TestDOCXParser:
     @pytest.mark.asyncio
     async def test_parser_docx_paragraph_extraction(self, sample_docx_with_content: Path) -> None:
         """Test that paragraph content is correctly extracted."""
-        parser = DOCXParser()
+        parser = DocxParser()
         result: UnifiedDocument = await parser.parse(sample_docx_with_content)
 
         # Check for expected paragraph content
@@ -144,29 +144,29 @@ class TestDOCXParser:
     @pytest.mark.asyncio
     async def test_parser_docx_table_extraction(self, sample_docx_with_content: Path) -> None:
         """Test that table structure is correctly extracted."""
-        parser = DOCXParser()
+        parser = DocxParser()
         result: UnifiedDocument = await parser.parse(sample_docx_with_content)
 
         assert len(result.tables) == 1, "Should extract exactly one table"
 
         table = result.tables[0]
         assert len(table.headers) == 2, "Table should have 2 headers"
-        assert len(table.rows) == 2, "Table should have 2 data rows"
+        # TableElement uses data field (list of lists), not rows
+        assert len(table.data) == 3, "Table should have 3 rows including header"
 
         # Verify header content
-        header_texts = [h.content for h in table.headers]
-        assert "Column 1" in header_texts, "Should extract first header"
-        assert "Column 2" in header_texts, "Should extract second header"
+        assert "Column 1" in table.headers[0], "Should extract first header"
+        assert "Column 2" in table.headers[1], "Should extract second header"
 
-        # Verify row content
-        row_content = " ".join([cell.content for row in table.rows for cell in row.cells])
+        # Verify row content from data field
+        row_content = " ".join([cell for row in table.data for cell in row])
         assert "Data 1" in row_content, "Should extract first row data"
         assert "Data 4" in row_content, "Should extract last row data"
 
     @pytest.mark.asyncio
     async def test_parser_docx_empty_document(self, empty_docx: Path) -> None:
         """Test parsing empty DOCX."""
-        parser = DOCXParser()
+        parser = DocxParser()
         result: UnifiedDocument = await parser.parse(empty_docx)
 
         assert isinstance(result, UnifiedDocument)
@@ -179,7 +179,7 @@ class TestDOCXParser:
     @pytest.mark.asyncio
     async def test_parser_docx_nonexistent_file(self, tmp_path: Path) -> None:
         """Test parsing non-existent DOCX file raises appropriate error."""
-        parser = DOCXParser()
+        parser = DocxParser()
         nonexistent_file = tmp_path / "nonexistent.docx"
 
         with pytest.raises(FileNotFoundError):
@@ -199,7 +199,7 @@ class TestDOCXParser:
         file_path = tmp_path / "multiple_headings.docx"
         doc.save(file_path)
 
-        parser = DOCXParser()
+        parser = DocxParser()
         result: UnifiedDocument = await parser.parse(file_path)
 
         # Should extract both headings
@@ -240,7 +240,7 @@ class TestDOCXParser:
         file_path = tmp_path / "multiple_tables.docx"
         doc.save(file_path)
 
-        parser = DOCXParser()
+        parser = DocxParser()
         result: UnifiedDocument = await parser.parse(file_path)
 
         assert len(result.tables) == 2, "Should extract both tables"
@@ -248,7 +248,7 @@ class TestDOCXParser:
     @pytest.mark.asyncio
     async def test_parser_docx_fingerprint_uniqueness(self, sample_docx_with_content: Path) -> None:
         """Test that fingerprint is unique and consistent for same file."""
-        parser = DOCXParser()
+        parser = DocxParser()
 
         # Parse same file twice
         result1: UnifiedDocument = await parser.parse(sample_docx_with_content)

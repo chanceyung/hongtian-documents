@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAppStore } from '@/lib/store'
 import ProgressBar from '@/components/ProgressBar'
@@ -40,11 +41,13 @@ export default function MagazinePage() {
   const [generationStatus, setGenerationStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle')
   const [exportUrl, setExportUrl] = useState<string | null>(null)
 
+  const router = useRouter()
+
   useEffect(() => {
     if (!magazineTask) {
-      window.location.href = '/'
+      router.push('/')
     }
-  }, [magazineTask])
+  }, [magazineTask, router])
 
   const handleGenerate = async () => {
     if (!magazineTask) return
