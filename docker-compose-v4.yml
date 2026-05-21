@@ -44,7 +44,7 @@ services:
       # GLM-5 API
       - LLM=custom
       - CUSTOM_LLM_URL=https://open.bigmodel.cn/api/paas/v4
-      - CUSTOM_MODEL=glm-5-pro
+      - CUSTOM_MODEL=glm-4-flash
       - CUSTOM_LLM_API_KEY=${GLM_API_KEY}
 
       # 素材补充

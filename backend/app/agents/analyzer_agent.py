@@ -42,7 +42,8 @@ class SemanticLinkResult(BaseModel):
 class AnalyzerAgent:
     """阶段I: 分析文档结构"""
 
-    def __init__(self, api_key: str, base_url: str = "https://open.bigmodel.cn/api/paas/v4"):
+    def __init__(self, api_key: str, base_url: str = "https://open.bigmodel.cn/api/paas/v4", model: str = "glm-4-flash"):
+        self._model = model
         self.client = instructor.from_openai(
             AsyncOpenAI(api_key=api_key, base_url=base_url)
         )
@@ -67,7 +68,7 @@ class AnalyzerAgent:
         ]
 
         result = await self.client.chat.completions.create(
-            model="glm-5-pro",
+            model=self._model,
             response_model=ClusteringResult,
             messages=[
                 {"role": "system", "content": "你是文档结构分析专家。将文档内容按主题分组。"},
@@ -81,7 +82,7 @@ class AnalyzerAgent:
         text_for_analysis = "\n".join(t.content for t in doc.texts[:100])[:8000]
 
         result = await self.client.chat.completions.create(
-            model="glm-5-pro",
+            model=self._model,
             response_model=PatternResult,
             messages=[
                 {"role": "system", "content": "分析文档内容，识别文档类型和结构。只基于提供的文本，不添加信息。"},
@@ -108,7 +109,7 @@ class AnalyzerAgent:
         ]
 
         result = await self.client.chat.completions.create(
-            model="glm-5-pro",
+            model=self._model,
             response_model=SemanticLinkResult,
             messages=[
                 {"role": "system", "content": "根据文字内容和图片位置，判断哪些文字和哪些图片有关联。只匹配同页的元素。"},

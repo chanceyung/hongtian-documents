@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # GLM-5 API
     LLM: str = "custom"
     CUSTOM_LLM_URL: str = "https://open.bigmodel.cn/api/paas/v4"
-    CUSTOM_MODEL: str = "glm-5-pro"
+    CUSTOM_MODEL: str = "glm-4-flash"
     CUSTOM_LLM_API_KEY: str = ""
 
     # 素材补充

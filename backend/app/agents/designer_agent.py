@@ -24,7 +24,8 @@ class PageMappingResult(BaseModel):
 class DesignerAgent:
     """阶段II: 基于编辑的排版设计"""
 
-    def __init__(self, api_key: str, base_url: str = "https://open.bigmodel.cn/api/paas/v4"):
+    def __init__(self, api_key: str, base_url: str = "https://open.bigmodel.cn/api/paas/v4", model: str = "glm-4-flash"):
+        self._model = model
         self.client = instructor.from_openai(
             AsyncOpenAI(api_key=api_key, base_url=base_url)
         )
@@ -43,7 +44,7 @@ class DesignerAgent:
 
     async def _determine_design_spec(self, doc: UnifiedDocument, analysis: dict) -> DesignSpec:
         result = await self.client.chat.completions.create(
-            model="glm-5-pro",
+            model=self._model,
             response_model=DesignSpecResult,
             messages=[
                 {"role": "system", "content": "根据文档类型推荐设计规范。"},
@@ -73,7 +74,7 @@ class DesignerAgent:
                       for i, t in enumerate(doc.texts[:spec.target_pages])]
 
         result = await self.client.chat.completions.create(
-            model="glm-5-pro",
+            model=self._model,
             response_model=PageMappingResult,
             messages=[
                 {"role": "system", "content": """将内容分组映射到页面。

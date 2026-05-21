@@ -31,7 +31,7 @@ def _get_fernet() -> Fernet:
 class ApiKeyConfig(BaseModel):
     session_id: str
     zhipu_api_key: Optional[str] = None
-    zhipu_model: str = "glm-5-pro"
+    zhipu_model: str = "glm-4-flash"
     zhipu_vision_key: Optional[str] = None
     serpapi_key: Optional[str] = None
     flux_key: Optional[str] = None

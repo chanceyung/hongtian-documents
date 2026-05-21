@@ -49,18 +49,20 @@ async def parser_node(state: PipelineState) -> dict:
 
 async def analyzer_node(state: PipelineState) -> dict:
     from app.agents.analyzer_agent import AnalyzerAgent
+    from app.core.config import settings
 
     api_key = await _get_api_key(state["session_id"])
-    agent = AnalyzerAgent(api_key)
+    agent = AnalyzerAgent(api_key, model=settings.CUSTOM_MODEL)
     analysis = await agent.analyze(state["document"])
     return {"analysis": analysis}
 
 
 async def designer_node(state: PipelineState) -> dict:
     from app.agents.designer_agent import DesignerAgent
+    from app.core.config import settings
 
     api_key = await _get_api_key(state["session_id"])
-    agent = DesignerAgent(api_key)
+    agent = DesignerAgent(api_key, model=settings.CUSTOM_MODEL)
     plan = await agent.design(
         state["document"],
         state["analysis"],
@@ -122,7 +124,7 @@ async def fidelity_node(state: PipelineState) -> dict:
     from app.core.config import settings
 
     api_key = await _get_api_key(state["session_id"])
-    agent = FidelityAgent(api_key, threshold=settings.FIDELITY_THRESHOLD)
+    agent = FidelityAgent(api_key, threshold=settings.FIDELITY_THRESHOLD, model=settings.CUSTOM_MODEL)
     result = await agent.verify(state["document"], state["edit_plan"])
     return {
         "fidelity_score": result.overall_score,

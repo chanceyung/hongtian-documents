@@ -25,7 +25,7 @@ class ZhipuClient:
 
         redis = redis_client.client
         model = await redis.hget(f"api_keys:{self.session_id}", "zhipu_model")
-        return model or "glm-5-pro"
+        return model or "glm-4-flash"
 
     async def chat(self, system_prompt: str, user_content: str, temperature: float = 0.1) -> str:
         api_key = await self._get_api_key()

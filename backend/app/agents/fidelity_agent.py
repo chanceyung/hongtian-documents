@@ -41,7 +41,9 @@ class FidelityAgent:
         api_key: str,
         threshold: float = 0.95,
         base_url: str = "https://open.bigmodel.cn/api/paas/v4",
+        model: str = "glm-4-flash",
     ):
+        self._model = model
         self.client = instructor.from_openai(
             AsyncOpenAI(api_key=api_key, base_url=base_url)
         )
@@ -193,7 +195,7 @@ class FidelityAgent:
             return 1.0, []
 
         result = await self.client.chat.completions.create(
-            model="glm-5-pro",
+            model=self._model,
             response_model=SemanticCheckResult,
             messages=[
                 {
