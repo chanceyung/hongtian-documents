@@ -13,8 +13,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000
-      - NEXT_PUBLIC_WS_URL=ws://backend:8000/ws
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
     depends_on:
       backend:
         condition: service_healthy
@@ -50,9 +49,9 @@ services:
 
       # 素材补充
       - IMAGE_PROVIDER=pexels
-      - PEXELS_API_KEY=${PEXELS_KEY:-}
-      - UNSPLASH_ACCESS_KEY=${UNSPLASH_KEY:-}
-      - REPLICATE_API_TOKEN=${REPLICATE_KEY:-}
+      - PEXELS_API_KEY=${PEXELS_API_KEY:-}
+      - UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY:-}
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN:-}
 
       # 保真校验
       - FIDELITY_THRESHOLD=0.95

@@ -1,47 +1,31 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAppStore } from '@/lib/store'
-import ProgressBar from '@/components/ProgressBar'
 import { magazineApi } from '@/lib/api'
 
 type Template = 'modern_tech' | 'elegant_minimal' | 'business_professional'
-
 type ExportFormat = 'pdf' | 'pptx'
 
-const templates = [
-  {
-    id: 'modern_tech' as Template,
-    name: '现代科技',
-    description: '科技感十足，适合技术文档',
-    preview: '/templates/modern_tech.png',
-  },
-  {
-    id: 'elegant_minimal' as Template,
-    name: '优雅简约',
-    description: '简洁大方，突出内容',
-    preview: '/templates/elegant_minimal.png',
-  },
-  {
-    id: 'business_professional' as Template,
-    name: '商务专业',
-    description: '正式专业，适合商务场景',
-    preview: '/templates/business_professional.png',
-  },
+const templates: { id: Template; name: string; desc: string; colors: string }[] = [
+  { id: 'modern_tech', name: '现代科技', desc: '深色背景 + 科技蓝配色', colors: 'from-[#1a1a2e] to-[#0f3460]' },
+  { id: 'elegant_minimal', name: '优雅极简', desc: '浅色背景 + 极简设计', colors: 'from-[#f5f5f5] to-[#e0e0e0]' },
+  { id: 'business_professional', name: '商务专业', desc: '深蓝背景 + 金色点缀', colors: 'from-[#0d1b2a] to-[#1b3a4b]' },
 ]
 
 export default function MagazinePage() {
-  const { magazineTask } = useAppStore()
-  const [selectedTemplate, setSelectedTemplate] = useState<Template>('modern_tech')
-  const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [generationProgress, setGenerationProgress] = useState(0)
-  const [generationStatus, setGenerationStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle')
-  const [exportUrl, setExportUrl] = useState<string | null>(null)
-
+  const { magazineTask, setFidelityReport, setSelectedTemplate, setOutputFormat } = useAppStore()
   const router = useRouter()
+
+  const [selectedTpl, setSelectedTpl] = useState<Template>('modern_tech')
+  const [format, setFormat] = useState<ExportFormat>('pdf')
+  const [status, setStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle')
+  const [progress, setProgress] = useState(0)
+  const [statusMsg, setStatusMsg] = useState('')
+  const [exportUrl, setExportUrl] = useState<string | null>(null)
+  const [taskId, setTaskId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!magazineTask) {
@@ -49,156 +33,238 @@ export default function MagazinePage() {
     }
   }, [magazineTask, router])
 
+  useEffect(() => {
+    return () => {
+      if (exportUrl) URL.revokeObjectURL(exportUrl)
+    }
+  }, [exportUrl])
+
+  const pollStatus = useCallback(async (id: string) => {
+    try {
+      const resp = await magazineApi.status(id)
+      const data = resp.data
+
+      const statusMap: Record<string, string> = {
+        pending: '等待处理', parsing: '解析文档', analyzing: '内容分析',
+        designing: '排版设计', rendering: '渲染生成', verifying: '保真校验',
+        completed: '已完成', failed: '处理失败',
+      }
+
+      setProgress(Math.round((data.progress || 0) * 100))
+      setStatusMsg(statusMap[data.status] || data.status)
+
+      if (data.status === 'completed') {
+        setStatus('completed')
+        try {
+          const report = await magazineApi.fidelity(id)
+          setFidelityReport(report.data)
+        } catch { /* report optional */ }
+        return true
+      }
+
+      if (data.status === 'failed') {
+        setStatus('failed')
+        setStatusMsg(data.message || '处理失败')
+        return true
+      }
+
+      return false
+    } catch {
+      return false
+    }
+  }, [setFidelityReport])
+
+  useEffect(() => {
+    if (!taskId || status !== 'processing') return
+
+    const interval = setInterval(async () => {
+      const done = await pollStatus(taskId)
+      if (done) clearInterval(interval)
+    }, 2000)
+
+    return () => clearInterval(interval)
+  }, [taskId, status, pollStatus])
+
   const handleGenerate = async () => {
     if (!magazineTask) return
 
-    setIsGenerating(true)
-    setGenerationStatus('processing')
-    setGenerationProgress(0)
+    setStatus('processing')
+    setProgress(0)
+    setStatusMsg('上传文档中...')
+    setSelectedTemplate(selectedTpl)
+    setOutputFormat(format)
 
     try {
-      const response = await magazineApi.export(magazineTask.id, exportFormat)
-      const blob = new Blob([response.data])
-      const url = URL.createObjectURL(blob)
-      setExportUrl(url)
-      setGenerationStatus('completed')
-      setGenerationProgress(100)
-    } catch (error) {
-      console.error('Failed to generate magazine:', error)
-      setGenerationStatus('failed')
-    } finally {
-      setIsGenerating(false)
+      if (exportUrl) {
+        URL.revokeObjectURL(exportUrl)
+        setExportUrl(null)
+      }
+
+      const resp = await magazineApi.status(magazineTask.id)
+      if (resp.data?.status === 'completed') {
+        setStatus('completed')
+        setProgress(100)
+        setStatusMsg('已完成')
+        setTaskId(magazineTask.id)
+        return
+      }
+
+      setTaskId(magazineTask.id)
+      setStatusMsg('等待处理...')
+    } catch {
+      setStatus('failed')
+      setStatusMsg('连接失败，请检查后端服务')
     }
   }
 
-  const handleDownload = () => {
-    if (!exportUrl || !magazineTask) return
+  const handleDownload = async () => {
+    if (!taskId) return
+    try {
+      const resp = await magazineApi.export(taskId, format)
+      const blob = new Blob([resp.data])
+      const url = URL.createObjectURL(blob)
+      setExportUrl(url)
 
-    const link = document.createElement('a')
-    link.href = exportUrl
-    link.download = `magazine_${magazineTask.fileName}.${exportFormat}`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `magazine_${taskId.slice(0, 8)}.${format}`
+      a.click()
+    } catch {
+      setStatusMsg('下载失败')
+    }
   }
 
-  if (!magazineTask) {
-    return null
-  }
+  if (!magazineTask) return null
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
-      <div className="container mx-auto px-4">
-        <div className="max-w-4xl mx-auto">
-          <div className="mb-8">
-            <Link
-              href="/"
-              className="inline-flex items-center text-brand-600 hover:text-brand-700 font-medium"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              返回首页
-            </Link>
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2 text-brand-600 hover:text-brand-700">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            返回首页
+          </Link>
+          <h1 className="text-lg font-semibold text-gray-900">生成杂志文档</h1>
+          <div className="w-20" />
+        </div>
+      </header>
+
+      <main className="max-w-5xl mx-auto px-4 py-8">
+        <div className="card mb-6">
+          <div className="flex items-center gap-4 text-sm text-gray-600">
+            <span>文件: <strong className="text-gray-900">{magazineTask.fileName}</strong></span>
+            <span className="text-gray-300">|</span>
+            <span>大小: {magazineTask.fileSize}</span>
           </div>
+        </div>
 
-          <div className="bg-white rounded-lg shadow-lg p-8">
-            <h1 className="text-3xl font-bold text-brand-900 mb-6">
-              生成杂志文档
-            </h1>
-
-            <div className="mb-8">
+        {status === 'idle' && (
+          <div className="space-y-6 animate-fade-in">
+            <div className="card">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">选择模板</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {templates.map((template) => (
+                {templates.map((tpl) => (
                   <button
-                    key={template.id}
-                    onClick={() => setSelectedTemplate(template.id)}
-                    className={`p-4 rounded-lg border-2 transition-all ${
-                      selectedTemplate === template.id
-                        ? 'border-brand-500 bg-brand-50'
+                    key={tpl.id}
+                    onClick={() => setSelectedTpl(tpl.id)}
+                    className={`p-4 rounded-xl border-2 transition-all text-left ${
+                      selectedTpl === tpl.id
+                        ? 'border-brand-500 bg-brand-50 shadow-sm'
                         : 'border-gray-200 hover:border-brand-300'
                     }`}
                   >
-                    <div className="w-full h-32 bg-gray-100 rounded-lg mb-3 flex items-center justify-center">
-                      <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    </div>
-                    <h3 className="font-semibold text-gray-900 mb-1">{template.name}</h3>
-                    <p className="text-sm text-gray-600">{template.description}</p>
+                    <div className={`w-full h-24 rounded-lg bg-gradient-to-br ${tpl.colors} mb-3`} />
+                    <h3 className="font-semibold text-gray-900">{tpl.name}</h3>
+                    <p className="text-sm text-gray-500 mt-1">{tpl.desc}</p>
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="mb-8">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">选择输出格式</h2>
-              <div className="flex space-x-4">
-                <button
-                  onClick={() => setExportFormat('pdf')}
-                  className={`flex-1 p-4 rounded-lg border-2 transition-all ${
-                    exportFormat === 'pdf'
-                      ? 'border-brand-500 bg-brand-50'
-                      : 'border-gray-200 hover:border-brand-300'
-                  }`}
-                >
-                  <div className="text-2xl font-bold text-brand-600 mb-1">PDF</div>
-                  <p className="text-sm text-gray-600">适合打印和分享</p>
-                </button>
-                <button
-                  onClick={() => setExportFormat('pptx')}
-                  className={`flex-1 p-4 rounded-lg border-2 transition-all ${
-                    exportFormat === 'pptx'
-                      ? 'border-brand-500 bg-brand-50'
-                      : 'border-gray-200 hover:border-brand-300'
-                  }`}
-                >
-                  <div className="text-2xl font-bold text-brand-600 mb-1">PPTX</div>
-                  <p className="text-sm text-gray-600">适合演示和编辑</p>
-                </button>
+            <div className="card">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">输出格式</h2>
+              <div className="grid grid-cols-2 gap-4">
+                {(['pdf', 'pptx'] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setFormat(f)}
+                    className={`p-4 rounded-xl border-2 transition-all ${
+                      format === f
+                        ? 'border-brand-500 bg-brand-50'
+                        : 'border-gray-200 hover:border-brand-300'
+                    }`}
+                  >
+                    <div className="text-xl font-bold text-brand-600 uppercase">{f}</div>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {f === 'pdf' ? '适合打印和分享' : '适合演示和编辑'}
+                    </p>
+                  </button>
+                ))}
               </div>
             </div>
 
-            {generationStatus === 'idle' && (
-              <button
-                onClick={handleGenerate}
-                className="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-4 px-6 rounded-lg transition-colors"
-              >
-                开始生成
-              </button>
-            )}
-
-            {(generationStatus === 'processing' || generationStatus === 'completed' || generationStatus === 'failed') && (
-              <div className="space-y-6">
-                <ProgressBar
-                  progress={generationProgress}
-                  label={generationStatus === 'processing' ? '正在生成...' : generationStatus === 'completed' ? '生成完成' : '生成失败'}
-                  status={generationStatus}
-                />
-
-                {generationStatus === 'completed' && (
-                  <button
-                    onClick={handleDownload}
-                    className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-4 px-6 rounded-lg transition-colors"
-                  >
-                    下载文档
-                  </button>
-                )}
-
-                {generationStatus === 'failed' && (
-                  <button
-                    onClick={handleGenerate}
-                    className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-4 px-6 rounded-lg transition-colors"
-                  >
-                    重试
-                  </button>
-                )}
-              </div>
-            )}
+            <button onClick={handleGenerate} className="btn-primary w-full py-4 text-lg">
+              开始生成
+            </button>
           </div>
-        </div>
-      </div>
+        )}
+
+        {status === 'processing' && (
+          <div className="card animate-fade-in">
+            <div className="flex flex-col items-center py-8">
+              <div className="w-16 h-16 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mb-6" />
+              <p className="text-lg font-semibold text-gray-900 mb-2">{statusMsg}</p>
+              <div className="w-full max-w-md bg-gray-200 rounded-full h-3 mt-4">
+                <div
+                  className="bg-brand-500 h-3 rounded-full transition-all duration-500"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <p className="text-sm text-gray-500 mt-2">{progress}%</p>
+            </div>
+          </div>
+        )}
+
+        {status === 'completed' && (
+          <div className="space-y-4 animate-fade-in">
+            <div className="card text-center py-8">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">生成完成</h2>
+              <p className="text-gray-500">您的杂志文档已准备好</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <button onClick={handleDownload} className="btn-primary w-full py-4">
+                下载文档
+              </button>
+              <Link href={`/magazine/fidelity?task_id=${taskId}`} className="btn-secondary w-full py-4 text-center">
+                查看保真报告
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {status === 'failed' && (
+          <div className="card text-center py-8 animate-fade-in">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">生成失败</h2>
+            <p className="text-gray-500 mb-6">{statusMsg}</p>
+            <button onClick={handleGenerate} className="btn-primary">
+              重试
+            </button>
+          </div>
+        )}
+      </main>
     </div>
   )
 }
