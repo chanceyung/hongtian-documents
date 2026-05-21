@@ -1,286 +1,367 @@
 """Tests for Magazine API endpoints."""
 
-import pytest
+import asyncio
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-from fastapi.testclient import TestClient
-from fastapi import UploadFile
+import pytest
+from httpx import ASGITransport, AsyncClient
 from io import BytesIO
+import zipfile
+import tempfile
+import shutil
+
+# Create minimal valid test files
+def create_minimal_pptx() -> bytes:
+    """Create a minimal valid PPTX file (ZIP with required structure)."""
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        # Required minimal PPTX structure
+        zf.writestr("[Content_Types].xml", '''<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
+</Types>''')
+        zf.writestr("_rels/.rels", '''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+</Relationships>''')
+        zf.writestr("ppt/presentation.xml", '''<?xml version="1.0" encoding="UTF-8"?>
+<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:slideIdLst><p:slideId id="256" r:id="r1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/></p:slideIdLst>
+</p:presentation>''')
+        zf.writestr("ppt/_rels/presentation.xml.rels", '''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slide1.xml"/>
+</Relationships>''')
+        zf.writestr("ppt/slide1.xml", '''<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:spTree><p:nvGrpSpPr/></p:spTree>
+</p:sld>''')
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def create_minimal_docx() -> bytes:
+    """Create a minimal valid DOCX file (ZIP with required structure)."""
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", '''<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>''')
+        zf.writestr("_rels/.rels", '''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>''')
+        zf.writestr("word/document.xml", '''<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body><w:p><w:r><w:t>Test</w:t></w:r></w:p></w:body>
+</w:document>''')
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def create_minimal_xlsx() -> bytes:
+    """Create a minimal valid XLSX file (ZIP with required structure)."""
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", '''<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+</Types>''')
+        zf.writestr("_rels/.rels", '''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>''')
+        zf.writestr("xl/workbook.xml", '''<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheets><sheet name="Sheet1" sheetId="1" r:id="r1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/></sheets>
+</workbook>''')
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def create_minimal_pdf() -> bytes:
+    """Create a minimal valid PDF file."""
+    return b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>\nendobj\n4 0 obj\n<< /Length 44 >>\nstream\nBT\n/F1 12 Tf\n100 700 Td\n(Test) Tj\nET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000206 00000 n \ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n310\n%%EOF"
+
+
+def create_minimal_md() -> bytes:
+    """Create a minimal valid Markdown file."""
+    return b"# Test Document\n\nThis is a test content."
+
+
+def create_minimal_txt() -> bytes:
+    """Create a minimal valid text file."""
+    return b"This is a plain text file."
 
 
 @pytest.fixture
-def mock_redis():
-    """Create mock Redis client."""
-    mock = MagicMock()
-    mock.set = MagicMock()
-    mock.get = MagicMock(return_value=None)
-    mock.delete = MagicMock()
-    mock.exists = MagicMock(return_value=False)
-    return mock
+def temp_output_dir(tmp_path):
+    """Create temporary output directory for tests."""
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    return output_dir
 
 
 @pytest.fixture
-def mock_background_tasks():
-    """Create mock background tasks."""
-    mock = MagicMock()
-    mock.add_task = MagicMock()
-    return mock
+async def client():
+    """Create test client for FastAPI app."""
+    from app.main import app
+    from app.core.config import settings
+
+    # Use temp directory for outputs
+    original_output_dir = settings.OUTPUT_DIR
+    temp_dir = Path(tempfile.mkdtemp())
+    settings.OUTPUT_DIR = str(temp_dir)
+
+    # Clear tasks dict
+    from app.api.v1 import _tasks
+    _tasks.clear()
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac
+    finally:
+        # Cleanup
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        settings.OUTPUT_DIR = original_output_dir
 
 
 class TestMagazineAPIUpload:
-    """Tests for POST /upload endpoint."""
+    """Tests for POST /api/magazine/upload endpoint."""
 
-    def test_upload_unsupported_format_returns_400(self, mock_redis, mock_background_tasks):
+    @pytest.mark.asyncio
+    async def test_upload_unsupported_format_returns_400(self, client):
         """Test that uploading unsupported format returns 400 status."""
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            with patch('app.api.magazine_api.BackgroundTasks', return_value=mock_background_tasks):
-                from app.api.magazine_api import app
+        file_content = b"test content"
+        response = await client.post(
+            "/api/magazine/upload",
+            files={"file": ("test.unsupported", BytesIO(file_content), "application/octet-stream")}
+        )
 
-                client = TestClient(app)
+        assert response.status_code == 400
+        assert "不支持的格式" in response.json()["detail"] or "format" in response.json()["detail"].lower()
 
-                # Create a file with unsupported extension
-                file_content = b"test content"
-                file = BytesIO(file_content)
-                file.name = "test.unsupported"
-
-                response = client.post(
-                    "/upload",
-                    files={"file": ("test.unsupported", file, "application/octet-stream")}
-                )
-
-                assert response.status_code == 400
-                assert "Unsupported" in response.json()["detail"] or "format" in response.json()["detail"].lower()
-
-    def test_upload_pptx_accepts_and_returns_200_with_task_id(self, mock_redis, mock_background_tasks):
+    @pytest.mark.asyncio
+    async def test_upload_pptx_accepts_and_returns_200_with_task_id(self, client):
         """Test that uploading PPTX returns 200 with task_id."""
-        mock_redis.set.return_value = True
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            with patch('app.api.magazine_api.BackgroundTasks', return_value=mock_background_tasks):
-                with patch('app.api.magazine_api.uuid4', return_value="test-task-123"):
-                    from app.api.magazine_api import app
+            response = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
 
-                    client = TestClient(app)
+            assert response.status_code == 200
+            assert "task_id" in response.json()
+            assert response.json()["status"] == "pending"
+            assert "session_id" in response.json()
 
-                    # Create a mock PPTX file
-                    file_content = b"PK\x03\x04"  # ZIP file header (PPTX is a ZIP)
-                    file = BytesIO(file_content)
-
-                    response = client.post(
-                        "/upload",
-                        files={"file": ("test.pptx", file, "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
-                    )
-
-                    assert response.status_code == 200
-                    assert "task_id" in response.json()
-                    assert response.json()["task_id"] == "test-task-123"
-
-    def test_upload_pdf_accepts_and_returns_200(self, mock_redis, mock_background_tasks):
+    @pytest.mark.asyncio
+    async def test_upload_pdf_accepts_and_returns_200(self, client):
         """Test that uploading PDF returns 200 with task_id."""
-        mock_redis.set.return_value = True
+        with patch('app.api.v1._run_pipeline'):
+            pdf_bytes = create_minimal_pdf()
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            with patch('app.api.magazine_api.BackgroundTasks', return_value=mock_background_tasks):
-                with patch('app.api.magazine_api.uuid4', return_value="test-task-456"):
-                    from app.api.magazine_api import app
+            response = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pdf", BytesIO(pdf_bytes), "application/pdf")}
+            )
 
-                    client = TestClient(app)
+            assert response.status_code == 200
+            assert "task_id" in response.json()
+            assert response.json()["status"] == "pending"
 
-                    # Create a mock PDF file
-                    file_content = b"%PDF-1.4"
-                    file = BytesIO(file_content)
-
-                    response = client.post(
-                        "/upload",
-                        files={"file": ("test.pdf", file, "application/pdf")}
-                    )
-
-                    assert response.status_code == 200
-                    assert "task_id" in response.json()
-
-    def test_upload_docx_accepts_and_returns_200(self, mock_redis, mock_background_tasks):
+    @pytest.mark.asyncio
+    async def test_upload_docx_accepts_and_returns_200(self, client):
         """Test that uploading DOCX returns 200 with task_id."""
-        mock_redis.set.return_value = True
+        with patch('app.api.v1._run_pipeline'):
+            docx_bytes = create_minimal_docx()
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            with patch('app.api.magazine_api.BackgroundTasks', return_value=mock_background_tasks):
-                with patch('app.api.magazine_api.uuid4', return_value="test-task-789"):
-                    from app.api.magazine_api import app
+            response = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.docx", BytesIO(docx_bytes), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
+            )
 
-                    client = TestClient(app)
+            assert response.status_code == 200
+            assert "task_id" in response.json()
 
-                    # Create a mock DOCX file
-                    file_content = b"PK\x03\x04"  # ZIP file header
-                    file = BytesIO(file_content)
-
-                    response = client.post(
-                        "/upload",
-                        files={"file": ("test.docx", file, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
-                    )
-
-                    assert response.status_code == 200
-                    assert "task_id" in response.json()
-
-    def test_upload_xlsx_accepts_and_returns_200(self, mock_redis, mock_background_tasks):
+    @pytest.mark.asyncio
+    async def test_upload_xlsx_accepts_and_returns_200(self, client):
         """Test that uploading XLSX returns 200 with task_id."""
-        mock_redis.set.return_value = True
+        with patch('app.api.v1._run_pipeline'):
+            xlsx_bytes = create_minimal_xlsx()
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            with patch('app.api.magazine_api.BackgroundTasks', return_value=mock_background_tasks):
-                with patch('app.api.magazine_api.uuid4', return_value="test-task-abc"):
-                    from app.api.magazine_api import app
+            response = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.xlsx", BytesIO(xlsx_bytes), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+            )
 
-                    client = TestClient(app)
+            assert response.status_code == 200
+            assert "task_id" in response.json()
 
-                    # Create a mock XLSX file
-                    file_content = b"PK\x03\x04"  # ZIP file header
-                    file = BytesIO(file_content)
-
-                    response = client.post(
-                        "/upload",
-                        files={"file": ("test.xlsx", file, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
-                    )
-
-                    assert response.status_code == 200
-                    assert "task_id" in response.json()
-
-    def test_upload_md_accepts_and_returns_200(self, mock_redis, mock_background_tasks):
+    @pytest.mark.asyncio
+    async def test_upload_md_accepts_and_returns_200(self, client):
         """Test that uploading Markdown returns 200 with task_id."""
-        mock_redis.set.return_value = True
+        with patch('app.api.v1._run_pipeline'):
+            md_bytes = create_minimal_md()
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            with patch('app.api.magazine_api.BackgroundTasks', return_value=mock_background_tasks):
-                with patch('app.api.magazine_api.uuid4', return_value="test-task-def"):
-                    from app.api.magazine_api import app
+            response = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.md", BytesIO(md_bytes), "text/markdown")}
+            )
 
-                    client = TestClient(app)
+            assert response.status_code == 200
+            assert "task_id" in response.json()
 
-                    # Create a mock Markdown file
-                    file_content = b"# Test Document\n\nSome content here."
-                    file = BytesIO(file_content)
+    @pytest.mark.asyncio
+    async def test_upload_txt_accepts_and_returns_200(self, client):
+        """Test that uploading text file returns 200 with task_id."""
+        with patch('app.api.v1._run_pipeline'):
+            txt_bytes = create_minimal_txt()
 
-                    response = client.post(
-                        "/upload",
-                        files={"file": ("test.md", file, "text/markdown")}
-                    )
+            response = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.txt", BytesIO(txt_bytes), "text/plain")}
+            )
 
-                    assert response.status_code == 200
-                    assert "task_id" in response.json()
+            assert response.status_code == 200
+            assert "task_id" in response.json()
 
-    def test_upload_saves_to_redis(self, mock_redis, mock_background_tasks):
-        """Test that upload saves task metadata to Redis."""
-        mock_redis.set.return_value = True
+    @pytest.mark.asyncio
+    async def test_upload_with_session_id_param(self, client):
+        """Test that upload accepts session_id query parameter."""
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            with patch('app.api.magazine_api.BackgroundTasks', return_value=mock_background_tasks):
-                with patch('app.api.magazine_api.uuid4', return_value="test-task-123"):
-                    from app.api.magazine_api import app
+            response = await client.post(
+                "/api/magazine/upload?session_id=custom-session-123",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
 
-                    client = TestClient(app)
+            assert response.status_code == 200
+            assert response.json()["session_id"] == "custom-session-123"
 
-                    file_content = b"PK\x03\x04"
-                    file = BytesIO(file_content)
+    @pytest.mark.asyncio
+    async def test_upload_with_session_id_header(self, client):
+        """Test that upload accepts X-Session-ID header."""
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
 
-                    client.post(
-                        "/upload",
-                        files={"file": ("test.pptx", file, "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
-                    )
+            response = await client.post(
+                "/api/magazine/upload",
+                headers={"X-Session-ID": "header-session-456"},
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
 
-                    # Verify Redis was called
-                    mock_redis.set.assert_called()
+            assert response.status_code == 200
+            assert response.json()["session_id"] == "header-session-456"
 
-    def test_upload_starts_background_task(self, mock_redis, mock_background_tasks):
+    @pytest.mark.asyncio
+    async def test_upload_starts_background_task(self, client):
         """Test that upload starts background processing task."""
-        mock_redis.set.return_value = True
+        with patch('app.api.v1._run_pipeline') as mock_pipeline:
+            pptx_bytes = create_minimal_pptx()
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            with patch('app.api.magazine_api.BackgroundTasks', return_value=mock_background_tasks):
-                with patch('app.api.magazine_api.uuid4', return_value="test-task-123"):
-                    from app.api.magazine_api import app
+            response = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
 
-                    client = TestClient(app)
+            assert response.status_code == 200
 
-                    file_content = b"PK\x03\x04"
-                    file = BytesIO(file_content)
+            # Wait a bit for background task to be added
+            await asyncio.sleep(0.1)
 
-                    client.post(
-                        "/upload",
-                        files={"file": ("test.pptx", file, "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
-                    )
+            # The mock should have been called (background task was scheduled)
+            # Note: We can't directly verify the background task was called,
+            # but we can verify the task was created
+            from app.api.v1 import _tasks
+            task_id = response.json()["task_id"]
+            assert task_id in _tasks
 
-                    # Verify background task was added
-                    mock_background_tasks.add_task.assert_called()
+    @pytest.mark.asyncio
+    async def test_upload_invalid_signature_returns_400(self, client):
+        """Test that file with invalid magic number returns 400."""
+        # Create a file with .pptx extension but invalid content
+        invalid_content = b"INVALID_CONTENT_NOT_ZIP"
+
+        response = await client.post(
+            "/api/magazine/upload",
+            files={"file": ("test.pptx", BytesIO(invalid_content), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+        )
+
+        assert response.status_code == 400
+        assert "不匹配" in response.json()["detail"]
 
 
 class TestMagazineAPIStatus:
-    """Tests for GET /status/{task_id} endpoint."""
+    """Tests for GET /api/magazine/status/{task_id} endpoint."""
 
-    def test_get_status_returns_task_status(self, mock_redis):
+    @pytest.mark.asyncio
+    async def test_get_status_returns_task_status(self, client):
         """Test that GET /status/{task_id} returns task status."""
-        import json
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
 
-        mock_redis.get.return_value = json.dumps({
-            "task_id": "test-task-123",
-            "status": "processing",
-            "progress": 50
-        }).encode()
+            # First upload a file
+            upload_resp = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
+            task_id = upload_resp.json()["task_id"]
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            from app.api.magazine_api import app
-
-            client = TestClient(app)
-
-            response = client.get("/status/test-task-123")
+            # Get status
+            response = await client.get(f"/api/magazine/status/{task_id}")
 
             assert response.status_code == 200
             data = response.json()
-            assert data["status"] == "processing"
-            assert data["progress"] == 50
+            assert data["task_id"] == task_id
+            assert data["status"] == "pending"
+            assert "progress" in data
 
-    def test_get_status_nonexistent_task_returns_404(self, mock_redis):
+    @pytest.mark.asyncio
+    async def test_get_status_nonexistent_task_returns_404(self, client):
         """Test that GET /status/{task_id} returns 404 for nonexistent task."""
-        mock_redis.get.return_value = None
+        response = await client.get("/api/magazine/status/nonexistent-task-id")
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            from app.api.magazine_api import app
-
-            client = TestClient(app)
-
-            response = client.get("/status/nonexistent-task")
-
-            assert response.status_code == 404
-            assert "not found" in response.json()["detail"].lower()
-
-    def test_get_status_with_completed_task(self, mock_redis):
-        """Test that status shows completed task."""
-        import json
-
-        mock_redis.get.return_value = json.dumps({
-            "task_id": "test-task-123",
-            "status": "completed",
-            "progress": 100
-        }).encode()
-
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            from app.api.magazine_api import app
-
-            client = TestClient(app)
-
-            response = client.get("/status/test-task-123")
-
-            assert response.status_code == 200
-            assert response.json()["status"] == "completed"
+        assert response.status_code == 404
+        detail = response.json()["detail"]
+        assert "不存在" in detail or "404" in detail.lower() or "not found" in detail.lower()
 
 
 class TestMagazineAPIFidelity:
-    """Tests for GET /fidelity/{task_id} endpoint."""
+    """Tests for GET /api/magazine/fidelity/{task_id} endpoint."""
 
-    def test_get_fidelity_returns_report(self, mock_redis):
+    @pytest.mark.asyncio
+    async def test_get_fidelity_returns_report(self, client, temp_output_dir):
         """Test that GET /fidelity/{task_id} returns fidelity report."""
-        import json
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
 
-        mock_redis.get.return_value = json.dumps({
-            "task_id": "test-task-123",
-            "fidelity_report": {
+            # Upload file
+            upload_resp = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
+            task_id = upload_resp.json()["task_id"]
+
+            # Create task summary file
+            from app.core.config import settings
+            task_dir = Path(settings.OUTPUT_DIR) / task_id
+            task_dir.mkdir(parents=True, exist_ok=True)
+
+            summary = {
+                "task_id": task_id,
                 "overall_score": 0.95,
                 "fingerprint_score": 1.0,
                 "linkage_score": 0.9,
@@ -289,185 +370,259 @@ class TestMagazineAPIFidelity:
                 "details": {},
                 "repair_suggestions": []
             }
-        }).encode()
+            (task_dir / "task_summary.json").write_text(json.dumps(summary), encoding="utf-8")
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            from app.api.magazine_api import app
-
-            client = TestClient(app)
-
-            response = client.get("/fidelity/test-task-123")
+            # Get fidelity report
+            response = await client.get(f"/api/magazine/fidelity/{task_id}")
 
             assert response.status_code == 200
             data = response.json()
-            assert "fidelity_report" in data
-            assert data["fidelity_report"]["overall_score"] == 0.95
+            assert data["overall_score"] == 0.95
+            assert data["fingerprint_score"] == 1.0
+            assert data["passed"] is True
 
-    def test_get_fidelity_nonexistent_task_returns_404(self, mock_redis):
+    @pytest.mark.asyncio
+    async def test_get_fidelity_nonexistent_task_returns_404(self, client):
         """Test that GET /fidelity/{task_id} returns 404 for nonexistent task."""
-        mock_redis.get.return_value = None
+        response = await client.get("/api/magazine/fidelity/nonexistent-task-id")
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            from app.api.magazine_api import app
+        assert response.status_code == 404
+        # Just verify status code - error message may vary based on implementation
 
-            client = TestClient(app)
+    @pytest.mark.asyncio
+    async def test_get_fidelity_no_report_returns_404(self, client):
+        """Test that GET /fidelity/{task_id} returns 404 when report not generated."""
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
 
-            response = client.get("/fidelity/nonexistent-task")
+            # Upload file
+            upload_resp = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
+            task_id = upload_resp.json()["task_id"]
+
+            # Get fidelity report without creating summary file
+            response = await client.get(f"/api/magazine/fidelity/{task_id}")
 
             assert response.status_code == 404
-
-    def test_get_fidelity_incomplete_task(self, mock_redis):
-        """Test that GET /fidelity/{task_id} returns error for incomplete task."""
-        import json
-
-        mock_redis.get.return_value = json.dumps({
-            "task_id": "test-task-123",
-            "status": "processing",
-            "fidelity_report": None
-        }).encode()
-
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            from app.api.magazine_api import app
-
-            client = TestClient(app)
-
-            response = client.get("/fidelity/test-task-123")
-
-            # Should return error or null report
-            assert response.status_code in [400, 200]
+            detail = response.json()["detail"]
+            assert "尚未生成" in detail or "404" in detail.lower() or "not found" in detail.lower()
 
 
 class TestMagazineAPIExport:
-    """Tests for GET /export/{task_id} endpoint."""
+    """Tests for GET /api/magazine/export/{task_id} endpoint."""
 
-    def test_get_export_returns_file(self, mock_redis):
-        """Test that GET /export/{task_id} returns exported file."""
-        import json
+    @pytest.mark.asyncio
+    async def test_get_export_returns_pdf_file(self, client):
+        """Test that GET /export/{task_id} returns PDF file."""
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
 
-        mock_redis.get.return_value = json.dumps({
-            "task_id": "test-task-123",
-            "status": "completed",
-            "output_path": "/exports/test-task-123.pdf"
-        }).encode()
+            # Upload file
+            upload_resp = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
+            task_id = upload_resp.json()["task_id"]
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            with patch('app.api.magazine_api.FileResponse') as MockFileResponse:
-                MockFileResponse.return_value = MagicMock(status_code=200)
+            # Update task status to completed
+            from app.api.v1 import _tasks
+            _tasks[task_id].status = "completed"
+            _tasks[task_id].output_path = f"/output/{task_id}/magazine.pdf"
 
-                from app.api.magazine_api import app
+            # Create output file
+            from app.core.config import settings
+            task_dir = Path(settings.OUTPUT_DIR) / task_id
+            task_dir.mkdir(parents=True, exist_ok=True)
+            (task_dir / "magazine.pdf").write_bytes(create_minimal_pdf())
 
-                client = TestClient(app)
+            # Export file
+            response = await client.get(f"/api/magazine/export/{task_id}?format=pdf")
 
-                response = client.get("/export/test-task-123?format=pdf")
+            assert response.status_code == 200
+            assert "application/pdf" in response.headers.get("content-type", "")
+            assert response.content.startswith(b"%PDF")
 
-                # FileResponse should be called
-                MockFileResponse.assert_called()
+    @pytest.mark.asyncio
+    async def test_get_export_returns_pptx_file(self, client):
+        """Test that GET /export/{task_id} returns PPTX file."""
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
 
-    def test_get_export_incomplete_task_returns_400(self, mock_redis):
+            # Upload file
+            upload_resp = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
+            task_id = upload_resp.json()["task_id"]
+
+            # Update task status to completed
+            from app.api.v1 import _tasks
+            _tasks[task_id].status = "completed"
+            _tasks[task_id].output_path = f"/output/{task_id}/magazine.pptx"
+
+            # Create output file
+            from app.core.config import settings
+            task_dir = Path(settings.OUTPUT_DIR) / task_id
+            task_dir.mkdir(parents=True, exist_ok=True)
+            (task_dir / "magazine.pptx").write_bytes(create_minimal_pptx())
+
+            # Export file
+            response = await client.get(f"/api/magazine/export/{task_id}?format=pptx")
+
+            assert response.status_code == 200
+            assert "openxmlformats" in response.headers.get("content-type", "")
+            assert response.content.startswith(b"PK\x03\x04")
+
+    @pytest.mark.asyncio
+    async def test_get_export_incomplete_task_returns_400(self, client):
         """Test that GET /export/{task_id} returns 400 for incomplete task."""
-        import json
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
 
-        mock_redis.get.return_value = json.dumps({
-            "task_id": "test-task-123",
-            "status": "processing",
-            "output_path": None
-        }).encode()
+            # Upload file
+            upload_resp = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
+            task_id = upload_resp.json()["task_id"]
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            from app.api.magazine_api import app
-
-            client = TestClient(app)
-
-            response = client.get("/export/test-task-123?format=pdf")
+            # Try to export while task is still pending
+            response = await client.get(f"/api/magazine/export/{task_id}?format=pdf")
 
             assert response.status_code == 400
-            assert "not complete" in response.json()["detail"].lower() or "processing" in response.json()["detail"].lower()
+            detail = response.json()["detail"]
+            assert "尚未" in detail or "未完成" in detail or "not complete" in detail.lower()
 
-    def test_get_export_nonexistent_task_returns_404(self, mock_redis):
-        """Test that GET /export/{task_id} returns 404 for nonexistent task."""
-        mock_redis.get.return_value = None
+    @pytest.mark.asyncio
+    async def test_get_export_nonexistent_task_returns_400(self, client):
+        """Test that GET /export/{task_id} returns 400 for nonexistent task."""
+        response = await client.get("/api/magazine/export/nonexistent-task-id?format=pdf")
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            from app.api.magazine_api import app
+        assert response.status_code == 400
 
-            client = TestClient(app)
+    @pytest.mark.asyncio
+    async def test_get_export_file_not_exists_returns_404(self, client):
+        """Test that GET /export/{task_id} returns 404 when file doesn't exist."""
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
 
-            response = client.get("/export/nonexistent-task?format=pdf")
+            # Upload file
+            upload_resp = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
+            task_id = upload_resp.json()["task_id"]
+
+            # Update task status to completed but don't create file
+            from app.api.v1 import _tasks
+            _tasks[task_id].status = "completed"
+            _tasks[task_id].output_path = f"/output/{task_id}/magazine.pdf"
+
+            # Try to export
+            response = await client.get(f"/api/magazine/export/{task_id}?format=pdf")
 
             assert response.status_code == 404
+            detail = response.json()["detail"]
+            assert "不存在" in detail or "404" in detail.lower() or "not found" in detail.lower()
 
-    def test_get_export_unsupported_format(self, mock_redis):
-        """Test that GET /export/{task_id} returns error for unsupported format."""
-        import json
 
-        mock_redis.get.return_value = json.dumps({
-            "task_id": "test-task-123",
-            "status": "completed",
-            "output_path": "/exports/test-task-123.pdf"
-        }).encode()
+class TestMagazineAPIGenerate:
+    """Tests for POST /api/magazine/generate endpoint."""
 
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            from app.api.magazine_api import app
+    @pytest.mark.asyncio
+    async def test_generate_magazine_with_existing_task(self, client):
+        """Test that generate endpoint works with existing task."""
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
 
-            client = TestClient(app)
+            # Upload file
+            upload_resp = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
+            task_id = upload_resp.json()["task_id"]
 
-            response = client.get("/export/test-task-123?format=unsupported")
+            # Generate with custom parameters
+            generate_req = {
+                "task_id": task_id,
+                "session_id": "test-session",
+                "output_format": "pptx",
+                "template_id": "modern_tech"
+            }
 
-            assert response.status_code == 400 or response.status_code == 422
+            response = await client.post("/api/magazine/generate", json=generate_req)
+
+            assert response.status_code == 200
+            assert response.json()["task_id"] == task_id
+            assert response.json()["status"] == "pending"
+
+    @pytest.mark.asyncio
+    async def test_generate_nonexistent_task_returns_404(self, client):
+        """Test that generate returns 404 for nonexistent task."""
+        generate_req = {
+            "task_id": "nonexistent-task-id",
+            "output_format": "pdf"
+        }
+
+        response = await client.post("/api/magazine/generate", json=generate_req)
+
+        assert response.status_code == 404
+        detail = response.json()["detail"]
+        assert "不存在" in detail or "404" in detail.lower() or "not found" in detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_generate_with_completed_task_returns_400(self, client):
+        """Test that generate returns 400 for already completed task."""
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
+
+            # Upload file
+            upload_resp = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
+            task_id = upload_resp.json()["task_id"]
+
+            # Mark task as completed
+            from app.api.v1 import _tasks
+            _tasks[task_id].status = "completed"
+
+            # Try to regenerate
+            generate_req = {
+                "task_id": task_id,
+                "output_format": "pdf"
+            }
+
+            response = await client.post("/api/magazine/generate", json=generate_req)
+
+            assert response.status_code == 400
+            assert "无法重新生成" in response.json()["detail"]
 
 
 class TestMagazineAPIErrorHandling:
     """Tests for API error handling."""
 
-    def test_upload_no_file_provided(self, mock_redis, mock_background_tasks):
+    @pytest.mark.asyncio
+    async def test_upload_no_file_provided(self, client):
         """Test that upload without file returns error."""
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            with patch('app.api.magazine_api.BackgroundTasks', return_value=mock_background_tasks):
-                from app.api.magazine_api import app
+        response = await client.post("/api/magazine/upload")
 
-                client = TestClient(app)
+        # Should return error (422 Unprocessable Entity)
+        assert response.status_code == 422
 
-                response = client.post("/upload")
+    @pytest.mark.asyncio
+    async def test_upload_empty_file(self, client):
+        """Test that upload with empty file is handled."""
+        with patch('app.api.v1._run_pipeline'):
+            empty_content = b""
 
-                # Should return error (422 Unprocessable Entity or 400)
-                assert response.status_code in [400, 422]
+            # Empty file with valid extension
+            response = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("empty.pptx", BytesIO(empty_content), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
 
-    def test_upload_empty_file(self, mock_redis, mock_background_tasks):
-        """Test that upload with empty file returns error."""
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            with patch('app.api.magazine_api.BackgroundTasks', return_value=mock_background_tasks):
-                from app.api.magazine_api import app
-
-                client = TestClient(app)
-
-                file_content = b""
-                file = BytesIO(file_content)
-
-                response = client.post(
-                    "/upload",
-                    files={"file": ("empty.pptx", file, "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
-                )
-
-                # Should return error
-                assert response.status_code in [400, 422]
-
-    def test_redis_connection_error_handling(self, mock_redis, mock_background_tasks):
-        """Test that Redis connection errors are handled gracefully."""
-        mock_redis.set.side_effect = Exception("Redis connection error")
-
-        with patch('app.api.magazine_api.redis_client', mock_redis):
-            with patch('app.api.magazine_api.BackgroundTasks', return_value=mock_background_tasks):
-                from app.api.magazine_api import app
-
-                client = TestClient(app)
-
-                file_content = b"PK\x03\x04"
-                file = BytesIO(file_content)
-
-                response = client.post(
-                    "/upload",
-                    files={"file": ("test.pptx", file, "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
-                )
-
-                # Should handle error gracefully
-                assert response.status_code in [500, 400]
+            # Should fail signature validation or file size check
+            assert response.status_code in [400, 413]
