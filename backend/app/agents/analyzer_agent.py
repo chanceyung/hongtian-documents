@@ -1,4 +1,6 @@
 """Analyzer Agent — PPTAgent 风格的文档分析：聚类 + 模式提取 + 语义关联"""
+import asyncio
+
 import instructor
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -40,7 +42,6 @@ class SemanticLinkResult(BaseModel):
 
 
 class AnalyzerAgent:
-    """阶段I: 分析文档结构"""
 
     def __init__(self, api_key: str, base_url: str = "https://open.bigmodel.cn/api/paas/v4", model: str = "glm-4-flash"):
         self._model = model
@@ -49,9 +50,13 @@ class AnalyzerAgent:
         )
 
     async def analyze(self, doc: UnifiedDocument) -> dict:
-        groups = await self._cluster_content(doc)
-        patterns = await self._extract_patterns(doc, groups)
-        semantic_links = await self._semantic_linkage(doc)
+        groups_task = self._cluster_content(doc)
+        patterns_task = self._extract_patterns(doc)
+        linkage_task = self._semantic_linkage(doc)
+
+        groups, patterns, semantic_links = await asyncio.gather(
+            groups_task, patterns_task, linkage_task,
+        )
 
         return {
             "content_groups": groups,
@@ -78,7 +83,7 @@ class AnalyzerAgent:
         )
         return [g.model_dump() for g in result.groups]
 
-    async def _extract_patterns(self, doc: UnifiedDocument, groups: list) -> dict:
+    async def _extract_patterns(self, doc: UnifiedDocument) -> dict:
         text_for_analysis = "\n".join(t.content for t in doc.texts[:100])[:8000]
 
         result = await self.client.chat.completions.create(

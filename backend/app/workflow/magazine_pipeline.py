@@ -1,4 +1,3 @@
-"""LangGraph 工作流 — 串联六个智能体"""
 import json
 from pathlib import Path
 from typing import TypedDict

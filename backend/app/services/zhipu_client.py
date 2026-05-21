@@ -1,4 +1,3 @@
-"""智谱 GLM-5 调用封装"""
 import httpx
 import json
 
@@ -10,6 +9,20 @@ class ZhipuClient:
 
     def __init__(self, session_id: str):
         self.session_id = session_id
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self, api_key: str) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=120,
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+        return self._client
+
+    async def close(self) -> None:
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def _get_api_key(self) -> str:
         from app.core.redis import redis_client
@@ -30,23 +43,22 @@ class ZhipuClient:
     async def chat(self, system_prompt: str, user_content: str, temperature: float = 0.1) -> str:
         api_key = await self._get_api_key()
         model = await self._get_model()
+        client = await self._get_client(api_key)
 
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(
-                f"{self.BASE_URL}/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_content},
-                    ],
-                    "temperature": temperature,
-                    "response_format": {"type": "json_object"},
-                },
-            )
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+        resp = await client.post(
+            f"{self.BASE_URL}/chat/completions",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                "temperature": temperature,
+                "response_format": {"type": "json_object"},
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
 
     async def analyze_document_structure(self, text_content: str) -> dict:
         system_prompt = """你是专业的文档分析师。基于提供的文本进行客观分析。
@@ -67,11 +79,9 @@ class ZhipuClient:
         return json.loads(result)
 
     async def generate_search_keywords(self, text_content: str) -> list[str]:
-        system_prompt = "根据文字内容，生成3-5个精确的图片搜索关键词。输出JSON数组格式。"
-        result = await self.chat(system_prompt, text_content)
+        result = await self.chat("根据文字内容，生成3-5个精确的图片搜索关键词。输出JSON数组格式。", text_content)
         return json.loads(result)
 
     async def generate_image_prompt(self, text_content: str, style: str = "professional") -> str:
-        system_prompt = f"根据文字内容生成AI绘图提示词。风格：{style}。英文输出，适合Flux.1模型。"
-        result = await self.chat(system_prompt, text_content, temperature=0.7)
+        result = await self.chat(f"根据文字内容生成AI绘图提示词。风格：{style}。英文输出，适合Flux.1模型。", text_content, temperature=0.7)
         return result

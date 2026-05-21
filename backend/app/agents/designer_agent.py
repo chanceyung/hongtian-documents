@@ -22,7 +22,6 @@ class PageMappingResult(BaseModel):
 
 
 class DesignerAgent:
-    """阶段II: 基于编辑的排版设计"""
 
     def __init__(self, api_key: str, base_url: str = "https://open.bigmodel.cn/api/paas/v4", model: str = "glm-4-flash"):
         self._model = model

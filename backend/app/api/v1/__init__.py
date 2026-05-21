@@ -1,4 +1,3 @@
-"""V4 杂志重构 API"""
 import uuid
 import json
 from pathlib import Path
@@ -11,7 +10,6 @@ from app.core.config import settings
 
 router = APIRouter(prefix="/magazine", tags=["Magazine"])
 
-# 文件魔数签名（前几个字节）
 MAGIC_SIGNATURES: dict[str, list[bytes]] = {
     ".pptx": [b"PK\x03\x04"],
     ".docx": [b"PK\x03\x04"],
@@ -20,6 +18,7 @@ MAGIC_SIGNATURES: dict[str, list[bytes]] = {
 }
 
 MAX_FILE_SIZE = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+_MAX_ERROR_MESSAGE_LENGTH = 500
 
 
 class GenerateRequest(BaseModel):
@@ -69,7 +68,6 @@ async def upload_document(
     file_path = task_dir / f"source{ext}"
     file_path.write_bytes(content)
 
-    # 从 query param 或 header 获取 session_id
     session_id = request.query_params.get("session_id") or request.headers.get("X-Session-ID") or task_id
 
     _tasks[task_id] = TaskStatus(
@@ -94,7 +92,6 @@ def _validate_file_signature(content: bytes, ext: str, filename: str) -> None:
         if header.startswith(sig):
             return
 
-    # ZIP 格式的文件（pptx/docx/xlsx）额外检查内部结构
     if ext in {".pptx", ".docx", ".xlsx"} and header.startswith(b"PK\x03\x04"):
         return
 
@@ -205,4 +202,4 @@ async def _run_pipeline(
 
     except Exception as e:
         task.status = "failed"
-        task.message = str(e)[:500]
+        task.message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]

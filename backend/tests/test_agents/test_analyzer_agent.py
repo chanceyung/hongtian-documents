@@ -233,7 +233,7 @@ class TestAnalyzerAgentExtractPatterns:
 
         with patch.object(analyzer_agent.client.chat.completions, 'create', new_callable=AsyncMock) as mock_create:
             mock_create.return_value = mock_pattern
-            result = await analyzer_agent._extract_patterns(doc, [])
+            result = await analyzer_agent._extract_patterns(doc)
 
             # Verify that the call was made with truncated content
             call_args = mock_create.call_args
@@ -255,7 +255,7 @@ class TestAnalyzerAgentExtractPatterns:
 
         with patch.object(analyzer_agent.client.chat.completions, 'create', new_callable=AsyncMock) as mock_create:
             mock_create.return_value = mock_pattern
-            result = await analyzer_agent._extract_patterns(sample_document, [])
+            result = await analyzer_agent._extract_patterns(sample_document)
 
             # Should still call the API
             mock_create.assert_called()

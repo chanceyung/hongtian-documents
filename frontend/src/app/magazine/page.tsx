@@ -44,14 +44,16 @@ export default function MagazinePage() {
       const resp = await magazineApi.status(id)
       const data = resp.data
 
+      const newProgress = Math.round((data.progress || 0) * 100)
       const statusMap: Record<string, string> = {
         pending: '等待处理', parsing: '解析文档', analyzing: '内容分析',
         designing: '排版设计', rendering: '渲染生成', verifying: '保真校验',
         completed: '已完成', failed: '处理失败',
       }
+      const newMsg = statusMap[data.status] || data.status
 
-      setProgress(Math.round((data.progress || 0) * 100))
-      setStatusMsg(statusMap[data.status] || data.status)
+      if (newProgress !== progress) setProgress(newProgress)
+      if (newMsg !== statusMsg) setStatusMsg(newMsg)
 
       if (data.status === 'completed') {
         setStatus('completed')
@@ -72,7 +74,7 @@ export default function MagazinePage() {
     } catch {
       return false
     }
-  }, [setFidelityReport])
+  }, [setFidelityReport, progress, statusMsg])
 
   useEffect(() => {
     if (!taskId || status !== 'processing') return
