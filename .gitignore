@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+.next/
+out/
+.npm
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 环境变量
+.env
+.env.local
+.env.production
+
+# 数据目录
+data/
+app_data/
+*.db
+*.sqlite3
+
+# 上传和输出
+uploads/
+output/
+assets/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.log
+
+# 临时文件
+*.tmp
+*.bak
+*.swp

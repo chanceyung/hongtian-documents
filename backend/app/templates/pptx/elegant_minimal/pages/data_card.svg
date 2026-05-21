@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" style="background-color: #ffffff;">
+  <!-- 左侧紫色装饰条 -->
+  <rect x="0" y="0" width="6" height="1080" fill="#6366f1" style=""/>
+
+  <!-- 顶部装饰线 -->
+  <line x1="140" y1="100" x2="1920" y2="100" stroke="#e2e8f0" stroke-width="2" style=""/>
+
+  <!-- 标题 -->
+  <text x="140" y="180" font-size="48" font-weight="bold" fill="#1e1b4b" style="font-family: Arial, sans-serif; font-weight: bold;" data-placeholder="title">数据展示页面</text>
+
+  <!-- 数据卡片 1 -->
+  <rect x="140" y="280" width="520" height="280" fill="#f1f5f9" rx="16" style=""/>
+  <text x="400" y="400" font-size="72" font-weight="bold" fill="#6366f1" text-anchor="middle" style="font-family: Arial, sans-serif; font-weight: bold;" data-placeholder="value_1">0</text>
+  <text x="400" y="480" font-size="28" fill="#64748b" text-anchor="middle" style="font-family: Arial, sans-serif;" data-placeholder="label_1">数据标签</text>
+
+  <!-- 数据卡片 2 -->
+  <rect x="700" y="280" width="520" height="280" fill="#f1f5f9" rx="16" style=""/>
+  <text x="960" y="400" font-size="72" font-weight="bold" fill="#6366f1" text-anchor="middle" style="font-family: Arial, sans-serif; font-weight: bold;" data-placeholder="value_2">0</text>
+  <text x="960" y="480" font-size="28" fill="#64748b" text-anchor="middle" style="font-family: Arial, sans-serif;" data-placeholder="label_2">数据标签</text>
+
+  <!-- 数据卡片 3 -->
+  <rect x="1260" y="280" width="520" height="280" fill="#f1f5f9" rx="16" style=""/>
+  <text x="1520" y="400" font-size="72" font-weight="bold" fill="#6366f1" text-anchor="middle" style="font-family: Arial, sans-serif; font-weight: bold;" data-placeholder="value_3">0</text>
+  <text x="1520" y="480" font-size="28" fill="#64748b" text-anchor="middle" style="font-family: Arial, sans-serif;" data-placeholder="label_3">数据标签</text>
+
+  <!-- Logo (右下角 - Black for light background) -->
+  <image x="1750" y="1010" width="150" height="50" href="../../../../logo/Black.png" preserveAspectRatio="xMidYMid meet" style=""/>
+</svg>

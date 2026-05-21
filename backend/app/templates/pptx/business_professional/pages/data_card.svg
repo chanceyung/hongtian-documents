@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" style="background-color: #0d1b2a;">
+  <!-- Logo (右上角 - White for dark background) -->
+  <image x="1720" y="30" width="150" height="50" href="../../../../logo/White.png" preserveAspectRatio="xMidYMid meet" style=""/>
+
+  <!-- 标题 -->
+  <text x="140" y="180" font-size="48" font-weight="bold" fill="#ffffff" style="font-family: Arial, sans-serif; font-weight: bold;" data-placeholder="title">数据展示页面</text>
+
+  <!-- 数据卡片 1 - 金色边框 -->
+  <rect x="140" y="250" width="520" height="280" fill="#1e3a5f" stroke="#c9a84c" stroke-width="4" rx="12" style=""/>
+  <text x="400" y="370" font-size="72" font-weight="bold" fill="#ffffff" text-anchor="middle" style="font-family: Arial, sans-serif; font-weight: bold;" data-placeholder="value_1">0</text>
+  <text x="400" y="450" font-size="28" fill="#c9a84c" text-anchor="middle" style="font-family: Arial, sans-serif;" data-placeholder="label_1">数据标签</text>
+
+  <!-- 数据卡片 2 - 金色边框 -->
+  <rect x="700" y="250" width="520" height="280" fill="#1e3a5f" stroke="#c9a84c" stroke-width="4" rx="12" style=""/>
+  <text x="960" y="370" font-size="72" font-weight="bold" fill="#ffffff" text-anchor="middle" style="font-family: Arial, sans-serif; font-weight: bold;" data-placeholder="value_2">0</text>
+  <text x="960" y="450" font-size="28" fill="#c9a84c" text-anchor="middle" style="font-family: Arial, sans-serif;" data-placeholder="label_2">数据标签</text>
+
+  <!-- 数据卡片 3 - 金色边框 -->
+  <rect x="1260" y="250" width="520" height="280" fill="#1e3a5f" stroke="#c9a84c" stroke-width="4" rx="12" style=""/>
+  <text x="1520" y="370" font-size="72" font-weight="bold" fill="#ffffff" text-anchor="middle" style="font-family: Arial, sans-serif; font-weight: bold;" data-placeholder="value_3">0</text>
+  <text x="1520" y="450" font-size="28" fill="#c9a84c" text-anchor="middle" style="font-family: Arial, sans-serif;" data-placeholder="label_3">数据标签</text>
+
+  <!-- 底部装饰线 -->
+  <line x1="140" y1="600" x2="1780" y2="600" stroke="#2c5282" stroke-width="2" style=""/>
+</svg>

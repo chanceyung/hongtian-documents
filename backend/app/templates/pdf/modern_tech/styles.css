@@ -1,0 +1,161 @@
+@page { size: A4; margin: 0; }
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
+  color: #333;
+  background: #fff;
+}
+
+.page {
+  width: 210mm;
+  height: 297mm;
+  padding: 40px 50px;
+  position: relative;
+  page-break-after: always;
+  overflow: hidden;
+}
+
+/* Logo */
+.logo {
+  position: absolute;
+  right: 50px;
+  width: 120px;
+  height: auto;
+}
+.logo-bottom { bottom: 30px; }
+
+/* Cover */
+.cover-page {
+  background: linear-gradient(135deg, #1a1a2e 0%, #0f3460 50%, #16213e 100%);
+  color: #fff;
+}
+.cover-decoration {
+  position: absolute;
+  top: -100px;
+  right: -100px;
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  background: rgba(233, 69, 96, 0.15);
+}
+.cover-title {
+  position: absolute;
+  left: 50px;
+  top: 280px;
+  font-size: 42px;
+  font-weight: 700;
+  max-width: 500px;
+  line-height: 1.3;
+}
+.cover-subtitle {
+  position: absolute;
+  left: 50px;
+  top: 400px;
+  font-size: 20px;
+  opacity: 0.8;
+  max-width: 450px;
+  line-height: 1.6;
+}
+.cover-image {
+  position: absolute;
+  right: 50px;
+  top: 80px;
+  width: 280px;
+  height: 380px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+/* Text page */
+.top-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: #2E86AB;
+}
+.section-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin-top: 30px;
+  margin-bottom: 20px;
+}
+.section-body {
+  font-size: 14px;
+  line-height: 1.8;
+  color: #555;
+  max-width: 600px;
+}
+
+/* Text + Image page */
+.text-image-page {
+  display: flex;
+  flex-wrap: wrap;
+}
+.text-column {
+  flex: 1;
+  min-width: 300px;
+  padding-right: 30px;
+}
+.image-column {
+  flex: 0 0 280px;
+}
+.section-image {
+  width: 280px;
+  height: 350px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-top: 50px;
+}
+
+/* Data cards */
+.data-page {
+  background: linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+}
+.data-card {
+  background: #2E86AB;
+  border-radius: 12px;
+  padding: 40px 30px;
+  text-align: center;
+  min-width: 160px;
+}
+.data-value {
+  font-size: 48px;
+  font-weight: 700;
+}
+.data-label {
+  font-size: 16px;
+  opacity: 0.8;
+  margin-top: 10px;
+}
+
+/* Table */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  font-size: 13px;
+}
+.data-table th {
+  background: #2E86AB;
+  color: #fff;
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 600;
+}
+.data-table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.data-table tr:nth-child(even) td {
+  background: #f9fafb;
+}

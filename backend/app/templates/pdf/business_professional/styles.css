@@ -1,0 +1,273 @@
+@page {
+  size: A4;
+  margin: 0;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Arial, sans-serif;
+  color: #1a202c;
+  background-color: #f8f9fa;
+}
+
+.page {
+  width: 210mm;
+  height: 297mm;
+  position: relative;
+  padding: 60px 80px;
+  background-color: #ffffff;
+  page-break-after: always;
+}
+
+/* 封面样式 */
+.cover-page {
+  background-color: #0d1b2a;
+  color: #ffffff;
+  padding: 50px 80px;
+  display: flex;
+  flex-direction: column;
+}
+
+.cover-page .header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 100px;
+}
+
+.logo-white {
+  height: 50px;
+  width: auto;
+}
+
+.cover-page .content {
+  flex: 1;
+}
+
+.cover-page .title {
+  font-family: Arial, sans-serif;
+  font-size: 64px;
+  font-weight: bold;
+  color: #ffffff;
+  margin-bottom: 20px;
+  line-height: 1.2;
+}
+
+.gold-underline {
+  width: 280px;
+  height: 5px;
+  background-color: #c9a84c;
+  margin-bottom: 30px;
+}
+
+.cover-page .subtitle {
+  font-family: Arial, sans-serif;
+  font-size: 28px;
+  color: #a0aec0;
+  margin-bottom: 50px;
+}
+
+.cover-image {
+  margin-top: 30px;
+  max-width: 600px;
+}
+
+.cover-image-img {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.corner-decoration {
+  position: absolute;
+  bottom: 100px;
+  left: 80px;
+}
+
+.decorative-box {
+  width: 100px;
+  height: 100px;
+  border: 3px solid #c9a84c;
+  border-radius: 8px;
+}
+
+.decorative-line-1 {
+  width: 100px;
+  height: 3px;
+  background-color: #c9a84c;
+  margin-top: 20px;
+}
+
+.decorative-line-2 {
+  width: 100px;
+  height: 3px;
+  background-color: #c9a84c;
+  margin-top: 20px;
+}
+
+.decorative-line-3 {
+  width: 3px;
+  height: 143px;
+  background-color: #c9a84c;
+  position: absolute;
+  right: -23px;
+  top: 0;
+}
+
+/* 顶部深蓝条 */
+.header-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50px;
+  background-color: #1e3a5f;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 80px;
+}
+
+.logo-white-small {
+  height: 40px;
+  width: auto;
+}
+
+/* 标题装饰线 */
+.title-decoration {
+  width: 6px;
+  height: 60px;
+  background-color: #c9a84c;
+  margin-bottom: 20px;
+}
+
+/* 内容页标题 */
+.section-title {
+  font-family: Arial, sans-serif;
+  font-size: 42px;
+  font-weight: bold;
+  color: #1a202c;
+  margin-bottom: 40px;
+  margin-top: 60px;
+}
+
+/* 文字内容 */
+.text-content {
+  font-family: Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.8;
+  color: #4a5568;
+}
+
+.text-content p {
+  margin-bottom: 16px;
+}
+
+/* 图文混排布局 */
+.text-image-layout {
+  display: flex;
+  gap: 40px;
+  margin-top: 40px;
+}
+
+.image-section {
+  flex: 0 0 40%;
+}
+
+.content-image {
+  width: 100%;
+  height: auto;
+  border: 4px solid #c9a84c;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.text-section {
+  flex: 1;
+}
+
+.content-heading {
+  font-family: Arial, sans-serif;
+  font-size: 24px;
+  font-weight: bold;
+  color: #1a202c;
+  margin-bottom: 20px;
+}
+
+/* 数据卡片页 (深蓝背景) */
+.data-card-page {
+  background-color: #0d1b2a;
+  color: #ffffff;
+}
+
+.data-card-page .header {
+  position: absolute;
+  top: 50px;
+  right: 80px;
+}
+
+.section-title-white {
+  font-family: Arial, sans-serif;
+  font-size: 42px;
+  font-weight: bold;
+  color: #ffffff;
+  margin-bottom: 40px;
+  margin-top: 100px;
+}
+
+.data-cards {
+  display: flex;
+  gap: 30px;
+  margin-top: 40px;
+}
+
+.data-card {
+  flex: 1;
+  background-color: #1e3a5f;
+  border: 4px solid #c9a84c;
+  border-radius: 12px;
+  padding: 40px 30px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.data-value {
+  font-family: Arial, sans-serif;
+  font-size: 56px;
+  font-weight: bold;
+  color: #ffffff;
+  margin-bottom: 16px;
+}
+
+.data-label {
+  font-family: Arial, sans-serif;
+  font-size: 18px;
+  color: #c9a84c;
+}
+
+.bottom-line {
+  width: calc(100% - 160px);
+  height: 2px;
+  background-color: #2c5282;
+  margin-top: 50px;
+}
+
+/* Logo 容器 */
+.logo-container {
+  position: absolute;
+  bottom: 40px;
+  right: 80px;
+}
+
+.logo-black {
+  height: 40px;
+  width: auto;
+}

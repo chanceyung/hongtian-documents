@@ -1,0 +1,52 @@
+# ============================================
+# 杂志级文档重构智能体 V4 — Python 依赖
+# ============================================
+
+# ---- Web 框架（Presenton 原有） ----
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+
+# ---- 数据库 & 缓存 ----
+sqlalchemy>=2.0.25
+aiosqlite>=0.19.0
+redis[hiredis]>=5.0.0
+
+# ---- LLM & 工作流 ----
+openai>=1.12.0           # GLM-5 兼容 OpenAI SDK
+instructor>=1.2.0        # 结构化 LLM 输出
+langgraph>=0.1.0         # 工作流编排
+
+# ---- 文档解析 ----
+python-pptx>=0.6.23      # PPTX 解析
+python-docx>=1.1.0       # DOCX 解析
+openpyxl>=3.1.2          # XLSX 解析
+PyMuPDF>=1.23.26         # PDF 解析（降级方案）
+docling>=2.5.0           # PDF 解析（主方案）
+markdown-it-py>=3.0.0    # Markdown 解析
+
+# ---- PDF 渲染 ----
+weasyprint>=61.0         # 文字/表格页 PDF 渲染
+playwright>=1.42.0       # 视觉页 PDF 渲染
+PyPDF2>=3.0.1            # PDF 合并
+
+# ---- 图片处理 ----
+Pillow>=10.2.0           # 图片裁剪、处理
+rembg>=2.0.50            # 背景移除（可选）
+
+# ---- HTML 解析 ----
+beautifulsoup4>=4.12.3
+lxml>=5.1.0
+html5lib>=1.1
+
+# ---- HTTP 客户端 ----
+httpx>=0.27.0            # API 调用（Pexels/Unsplash/Replicate）
+
+# ---- 加密 ----
+cryptography>=42.0.0     # API Key 加密存储
+
+# ---- 工具 ----
+python-slugify>=8.0.4    # URL 友好文件名
+tenacity>=8.2.3          # 重试策略

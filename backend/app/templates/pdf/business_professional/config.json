@@ -1,0 +1,19 @@
+{
+  "name": "商务专业风",
+  "description": "深蓝背景 + 金色点缀，适合金融报告和商务提案",
+  "format": "pdf",
+  "colors": {
+    "primary": "#1e3a5f",
+    "secondary": "#c9a84c",
+    "accent": "#2c5282",
+    "background_dark": "#0d1b2a",
+    "background_light": "#f8f9fa",
+    "text_light": "#ffffff",
+    "text_dark": "#1a202c"
+  },
+  "fonts": {
+    "title": "Arial, sans-serif",
+    "body": "Arial, sans-serif"
+  },
+  "layouts": ["cover", "text_only", "text_image", "data_card"]
+}

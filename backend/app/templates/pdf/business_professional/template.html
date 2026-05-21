@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>弘天文档</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- 封面页 -->
+  <div class="page cover-page">
+    <div class="header">
+      <img src="{{logo_white}}" alt="弘天 Logo" class="logo-white">
+    </div>
+    <div class="content">
+      <h1 class="title">{{title}}</h1>
+      <div class="gold-underline"></div>
+      <h2 class="subtitle">{{subtitle}}</h2>
+      <div class="cover-image">
+        <img src="{{image}}" alt="封面图片" class="cover-image-img">
+      </div>
+    </div>
+    <div class="corner-decoration">
+      <div class="decorative-box"></div>
+      <div class="decorative-line-1"></div>
+      <div class="decorative-line-2"></div>
+      <div class="decorative-line-3"></div>
+    </div>
+  </div>
+
+  <!-- 纯文字内容页 -->
+  <div class="page text-page">
+    <div class="header-bar">
+      <img src="{{logo_white}}" alt="弘天 Logo" class="logo-white-small">
+    </div>
+    <div class="content">
+      <div class="title-decoration"></div>
+      <h1 class="section-title">{{title}}</h1>
+      <div class="text-content">
+        {{content}}
+      </div>
+    </div>
+    <div class="logo-container">
+      <img src="{{logo_black}}" alt="弘天 Logo" class="logo-black">
+    </div>
+  </div>
+
+  <!-- 图文混排页 -->
+  <div class="page text-image-page">
+    <div class="header-bar">
+      <img src="{{logo_white}}" alt="弘天 Logo" class="logo-white-small">
+    </div>
+    <div class="content">
+      <div class="title-decoration"></div>
+      <h1 class="section-title">{{title}}</h1>
+      <div class="text-image-layout">
+        <div class="image-section">
+          <img src="{{image}}" alt="图片" class="content-image">
+        </div>
+        <div class="text-section">
+          <h2 class="content-heading">{{heading}}</h2>
+          <div class="text-content">
+            {{content}}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="logo-container">
+      <img src="{{logo_black}}" alt="弘天 Logo" class="logo-black">
+    </div>
+  </div>
+
+  <!-- 数据卡片页 -->
+  <div class="page data-card-page">
+    <div class="header">
+      <img src="{{logo_white}}" alt="弘天 Logo" class="logo-white">
+    </div>
+    <div class="content">
+      <h1 class="section-title-white">{{title}}</h1>
+      <div class="data-cards">
+        <div class="data-card">
+          <div class="data-value">{{value_1}}</div>
+          <div class="data-label">{{label_1}}</div>
+        </div>
+        <div class="data-card">
+          <div class="data-value">{{value_2}}</div>
+          <div class="data-label">{{label_2}}</div>
+        </div>
+        <div class="data-card">
+          <div class="data-value">{{value_3}}</div>
+          <div class="data-label">{{label_3}}</div>
+        </div>
+      </div>
+      <div class="bottom-line"></div>
+    </div>
+  </div>
+</body>
+</html>

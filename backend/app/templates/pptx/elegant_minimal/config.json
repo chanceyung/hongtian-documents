@@ -1,0 +1,39 @@
+{
+  "name": "优雅极简风",
+  "description": "浅色背景 + 极简设计，适合品牌介绍和企业年报",
+  "format": "pptx",
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "ratio": "16:9"
+  },
+  "colors": {
+    "primary": "#6366f1",
+    "secondary": "#8b5cf6",
+    "accent": "#c084fc",
+    "background_light": "#fafafa",
+    "text_dark": "#1e1b4b"
+  },
+  "pages": [
+    {
+      "id": "cover",
+      "file": "pages/cover.svg",
+      "layout_type": "cover"
+    },
+    {
+      "id": "content_text",
+      "file": "pages/content_text.svg",
+      "layout_type": "text_only"
+    },
+    {
+      "id": "content_image_text",
+      "file": "pages/content_image_text.svg",
+      "layout_type": "text_image"
+    },
+    {
+      "id": "data_card",
+      "file": "pages/data_card.svg",
+      "layout_type": "data_card"
+    }
+  ]
+}

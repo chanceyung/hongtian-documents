@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>弘天文档</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- 封面页 -->
+  <div class="page cover-page">
+    <div class="decorative-bar"></div>
+    <div class="content">
+      <h1 class="title">{{title}}</h1>
+      <h2 class="subtitle">{{subtitle}}</h2>
+      <div class="accent-line"></div>
+    </div>
+    <div class="logo-container">
+      <img src="{{logo_black}}" alt="弘天 Logo" class="logo">
+    </div>
+  </div>
+
+  <!-- 纯文字内容页 -->
+  <div class="page text-page">
+    <div class="decorative-bar"></div>
+    <div class="header-line"></div>
+    <div class="content">
+      <h1 class="section-title">{{title}}</h1>
+      <div class="text-content">
+        {{content}}
+      </div>
+    </div>
+    <div class="logo-container">
+      <img src="{{logo_black}}" alt="弘天 Logo" class="logo">
+    </div>
+  </div>
+
+  <!-- 图文混排页 -->
+  <div class="page text-image-page">
+    <div class="decorative-bar"></div>
+    <div class="header-line"></div>
+    <div class="content">
+      <h1 class="section-title">{{title}}</h1>
+      <div class="text-image-layout">
+        <div class="image-section">
+          <img src="{{image}}" alt="图片" class="content-image">
+        </div>
+        <div class="text-section">
+          <h2 class="content-heading">{{heading}}</h2>
+          <div class="text-content">
+            {{content}}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="logo-container">
+      <img src="{{logo_black}}" alt="弘天 Logo" class="logo">
+    </div>
+  </div>
+
+  <!-- 数据卡片页 -->
+  <div class="page data-card-page">
+    <div class="decorative-bar"></div>
+    <div class="header-line"></div>
+    <div class="content">
+      <h1 class="section-title">{{title}}</h1>
+      <div class="data-cards">
+        <div class="data-card">
+          <div class="data-value">{{value_1}}</div>
+          <div class="data-label">{{label_1}}</div>
+        </div>
+        <div class="data-card">
+          <div class="data-value">{{value_2}}</div>
+          <div class="data-label">{{label_2}}</div>
+        </div>
+        <div class="data-card">
+          <div class="data-value">{{value_3}}</div>
+          <div class="data-label">{{label_3}}</div>
+        </div>
+      </div>
+    </div>
+    <div class="logo-container">
+      <img src="{{logo_black}}" alt="弘天 Logo" class="logo">
+    </div>
+  </div>
+</body>
+</html>

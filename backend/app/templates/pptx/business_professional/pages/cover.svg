@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" style="background-color: #0d1b2a;">
+  <!-- Logo (右上角 - White for dark background) -->
+  <image x="1720" y="30" width="150" height="50" href="../../../../logo/White.png" preserveAspectRatio="xMidYMid meet" style=""/>
+
+  <!-- 标题 -->
+  <text x="140" y="480" font-size="72" font-weight="bold" fill="#ffffff" style="font-family: Arial, sans-serif; font-weight: bold;" data-placeholder="title">您的标题</text>
+
+  <!-- 金色下划线装饰 -->
+  <line x1="140" y1="510" x2="600" y2="510" stroke="#c9a84c" stroke-width="6" style=""/>
+
+  <!-- 副标题 -->
+  <text x="140" y="580" font-size="32" fill="#a0aec0" style="font-family: Arial, sans-serif;" data-placeholder="subtitle">您的副标题</text>
+
+  <!-- 封面图片占位符 (中部偏右) -->
+  <rect x="1000" y="280" width="780" height="480" fill="#1e3a5f" rx="12" style=""/>
+  <image x="1000" y="280" width="780" height="480" href="" preserveAspectRatio="xMidYMid slice" style="" data-placeholder="image"/>
+
+  <!-- 左下角金色几何装饰 -->
+  <rect x="140" y="850" width="120" height="120" fill="none" stroke="#c9a84c" stroke-width="3" rx="8" style=""/>
+  <line x1="140" y1="910" x2="260" y2="910" stroke="#c9a84c" stroke-width="3" style=""/>
+  <line x1="140" y1="970" x2="260" y2="970" stroke="#c9a84c" stroke-width="3" style=""/>
+
+  <!-- 金色线条装饰 -->
+  <line x1="290" y1="850" x2="290" y2="970" stroke="#c9a84c" stroke-width="3" style=""/>
+</svg>

@@ -1,0 +1,17 @@
+{
+  "name": "优雅极简风",
+  "description": "浅色背景 + 极简设计，适合品牌介绍和企业年报",
+  "format": "pdf",
+  "colors": {
+    "primary": "#6366f1",
+    "secondary": "#8b5cf6",
+    "accent": "#c084fc",
+    "background_light": "#fafafa",
+    "text_dark": "#1e1b4b"
+  },
+  "fonts": {
+    "title": "Georgia, serif",
+    "body": "Arial, sans-serif"
+  },
+  "layouts": ["cover", "text_only", "text_image", "data_card"]
+}

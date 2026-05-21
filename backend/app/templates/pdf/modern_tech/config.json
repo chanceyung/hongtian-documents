@@ -1,0 +1,96 @@
+{
+  "name": "现代科技风",
+  "description": "深色背景 + 渐变装饰 + 科技感配色",
+  "preview": "modern_tech_preview.png",
+  "pages": [
+    {
+      "page_number": 1,
+      "layout_type": "cover",
+      "placeholders": {
+        "title": {"selector": ".cover-title", "type": "text", "max_length": 50},
+        "subtitle": {"selector": ".cover-subtitle", "type": "text", "max_length": 100},
+        "cover_image": {"selector": ".cover-image", "type": "image", "aspect_ratio": "16:9"}
+      }
+    },
+    {
+      "page_number": 2,
+      "layout_type": "text_image",
+      "placeholders": {
+        "heading": {"selector": ".section-title", "type": "text", "max_length": 30},
+        "body": {"selector": ".section-body", "type": "text", "max_length": 500},
+        "image": {"selector": ".section-image", "type": "image", "aspect_ratio": "4:3"}
+      }
+    },
+    {
+      "page_number": 3,
+      "layout_type": "text_table",
+      "placeholders": {
+        "heading": {"selector": ".section-title", "type": "text", "max_length": 30},
+        "body": {"selector": ".section-body", "type": "text", "max_length": 300},
+        "table": {"selector": ".table-container", "type": "table", "max_rows": 15, "max_cols": 6}
+      }
+    },
+    {
+      "page_number": 4,
+      "layout_type": "data_card",
+      "placeholders": {
+        "heading": {"selector": ".card-title", "type": "text", "max_length": 20},
+        "value1": {"selector": ".data-value-1", "type": "text", "max_length": 20},
+        "label1": {"selector": ".data-label-1", "type": "text", "max_length": 30},
+        "value2": {"selector": ".data-value-2", "type": "text", "max_length": 20},
+        "label2": {"selector": ".data-label-2", "type": "text", "max_length": 30},
+        "value3": {"selector": ".data-value-3", "type": "text", "max_length": 20},
+        "label3": {"selector": ".data-label-3", "type": "text", "max_length": 30}
+      }
+    },
+    {
+      "page_number": 5,
+      "layout_type": "text_only",
+      "placeholders": {
+        "heading": {"selector": ".section-title", "type": "text", "max_length": 30},
+        "body": {"selector": ".section-body", "type": "text", "max_length": 1000}
+      }
+    },
+    {
+      "page_number": 6,
+      "layout_type": "two_column",
+      "placeholders": {
+        "heading": {"selector": ".section-title", "type": "text", "max_length": 30},
+        "col1_text": {"selector": ".column-1 .body-text", "type": "text", "max_length": 500},
+        "col2_text": {"selector": ".column-2 .body-text", "type": "text", "max_length": 500},
+        "col1_image": {"selector": ".column-1 .column-image", "type": "image", "aspect_ratio": "1:1"},
+        "col2_image": {"selector": ".column-2 .column-image", "type": "image", "aspect_ratio": "1:1"}
+      }
+    },
+    {
+      "page_number": 7,
+      "layout_type": "full_image",
+      "placeholders": {
+        "heading": {"selector": ".overlay-title", "type": "text", "max_length": 30},
+        "caption": {"selector": ".overlay-caption", "type": "text", "max_length": 100},
+        "image": {"selector": ".full-image", "type": "image", "aspect_ratio": "16:9"}
+      }
+    }
+  ],
+  "colors": {
+    "primary": "#0f3460",
+    "secondary": "#16213e",
+    "accent": "#e94560",
+    "background": "#ffffff",
+    "text_dark": "#1a1a2e",
+    "text_light": "#ffffff",
+    "muted": "#6c757d"
+  },
+  "fonts": {
+    "title": "Arial, 'Microsoft YaHei', sans-serif",
+    "body": "Arial, 'Microsoft YaHei', sans-serif",
+    "mono": "'Courier New', monospace"
+  },
+  "typography": {
+    "title_size": "42px",
+    "subtitle_size": "24px",
+    "heading_size": "32px",
+    "body_size": "16px",
+    "caption_size": "14px"
+  }
+}

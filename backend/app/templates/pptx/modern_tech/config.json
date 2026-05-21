@@ -1,0 +1,21 @@
+{
+  "name": "现代科技风",
+  "description": "深色背景 + 科技蓝配色，适合技术展示和产品介绍",
+  "format": "pptx",
+  "canvas": {"width": 1920, "height": 1080, "ratio": "16:9"},
+  "colors": {
+    "primary": "#2E86AB",
+    "secondary": "#F24236",
+    "accent": "#e94560",
+    "background_dark": "#1a1a2e",
+    "background_light": "#ffffff",
+    "text_light": "#ffffff",
+    "text_dark": "#333333"
+  },
+  "pages": [
+    {"id": "cover", "file": "pages/cover.svg", "layout_type": "cover"},
+    {"id": "content_text", "file": "pages/content_text.svg", "layout_type": "text_only"},
+    {"id": "content_image_text", "file": "pages/content_image_text.svg", "layout_type": "text_image"},
+    {"id": "data_card", "file": "pages/data_card.svg", "layout_type": "data_card"}
+  ]
+}

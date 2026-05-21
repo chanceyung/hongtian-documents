@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+  <!-- Background -->
+  <rect width="1920" height="1080" fill="#ffffff"/>
+
+  <!-- Top Decorative Line -->
+  <rect x="0" y="0" width="1920" height="4" fill="#2E86AB"/>
+
+  <!-- Side Accent Bar -->
+  <rect x="0" y="4" width="8" height="1076" fill="#e94560"/>
+
+  <!-- Heading -->
+  <text x="80" y="120" data-placeholder="heading" fill="#333333" font-family="Arial, sans-serif" font-size="36" font-weight="bold">
+    Your Heading Here
+  </text>
+
+  <!-- Decorative Line Under Heading -->
+  <rect x="80" y="140" width="120" height="4" fill="#2E86AB" rx="2"/>
+
+  <!-- Body Text -->
+  <text x="80" y="220" data-placeholder="body" fill="#555555" font-family="Arial, sans-serif" font-size="20">
+    Your body text here. This is a placeholder for your content.
+  </text>
+
+  <!-- Decorative Elements -->
+  <circle cx="1800" cy="150" r="60" fill="#2E86AB" opacity="0.1"/>
+  <circle cx="1700" cy="250" r="40" fill="#e94560" opacity="0.1"/>
+
+  <rect x="1750" y="900" width="100" height="4" fill="#2E86AB" opacity="0.3" rx="2"/>
+  <rect x="1750" y="920" width="60" height="4" fill="#e94560" opacity="0.3" rx="2"/>
+
+  <!-- Page Number Placeholder -->
+  <text x="1800" y="1050" fill="#999999" font-family="Arial, sans-serif" font-size="16" opacity="0.6">
+    1
+  </text>
+
+  <!-- Logo -->
+  <image x="1750" y="1010" width="150" height="50" href="../../../../logo/Black.png" data-placeholder="logo" preserveAspectRatio="xMidYMid meet"/>
+</svg>

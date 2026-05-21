@@ -1,0 +1,41 @@
+{
+  "name": "商务专业风",
+  "description": "深蓝背景 + 金色点缀，适合金融报告和商务提案",
+  "format": "pptx",
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "ratio": "16:9"
+  },
+  "colors": {
+    "primary": "#1e3a5f",
+    "secondary": "#c9a84c",
+    "accent": "#2c5282",
+    "background_dark": "#0d1b2a",
+    "background_light": "#f8f9fa",
+    "text_light": "#ffffff",
+    "text_dark": "#1a202c"
+  },
+  "pages": [
+    {
+      "id": "cover",
+      "file": "pages/cover.svg",
+      "layout_type": "cover"
+    },
+    {
+      "id": "content_text",
+      "file": "pages/content_text.svg",
+      "layout_type": "text_only"
+    },
+    {
+      "id": "content_image_text",
+      "file": "pages/content_image_text.svg",
+      "layout_type": "text_image"
+    },
+    {
+      "id": "data_card",
+      "file": "pages/data_card.svg",
+      "layout_type": "data_card"
+    }
+  ]
+}

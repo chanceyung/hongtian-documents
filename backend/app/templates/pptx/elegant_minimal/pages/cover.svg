@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" style="background-color: #fafafa;">
+  <!-- 左侧紫色装饰条 -->
+  <rect x="0" y="0" width="6" height="1080" fill="#6366f1" style=""/>
+
+  <!-- 标题 -->
+  <text x="140" y="480" font-size="72" font-weight="bold" fill="#1e1b4b" style="font-family: Arial, sans-serif; font-weight: bold;" data-placeholder="title">您的标题</text>
+
+  <!-- 副标题 -->
+  <text x="140" y="560" font-size="32" fill="#64748b" style="font-family: Arial, sans-serif;" data-placeholder="subtitle">您的副标题</text>
+
+  <!-- 底部装饰线 -->
+  <line x1="140" y1="640" x2="400" y2="640" stroke="#6366f1" stroke-width="4" style=""/>
+
+  <!-- Logo (右下角 - Black for light background) -->
+  <image x="1750" y="1010" width="150" height="50" href="../../../../logo/Black.png" preserveAspectRatio="xMidYMid meet" style=""/>
+</svg>

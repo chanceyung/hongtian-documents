@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" style="background-color: #f8f9fa;">
+  <!-- 顶部深蓝色条 -->
+  <rect x="0" y="0" width="1920" height="60" fill="#1e3a5f" style=""/>
+
+  <!-- Logo (顶部深蓝条内 - White) -->
+  <image x="1720" y="5" width="150" height="50" href="../../../../logo/White.png" preserveAspectRatio="xMidYMid meet" style=""/>
+
+  <!-- 标题左侧金色竖线装饰 -->
+  <line x1="140" y1="140" x2="140" y2="240" stroke="#c9a84c" stroke-width="6" style=""/>
+
+  <!-- 标题 -->
+  <text x="180" y="200" font-size="48" font-weight="bold" fill="#1a202c" style="font-family: Arial, sans-serif; font-weight: bold;" data-placeholder="title">页面标题</text>
+
+  <!-- 正文内容 -->
+  <text x="140" y="320" font-size="24" fill="#4a5568" style="font-family: Arial, sans-serif;" data-placeholder="content">正文内容将显示在这里。这是第一段文字，可以包含较长的描述性内容。</text>
+
+  <text x="140" y="390" font-size="24" fill="#4a5568" style="font-family: Arial, sans-serif;" data-placeholder="content_2">这是第二段文字内容，继续展示更多的文本信息。</text>
+
+  <text x="140" y="460" font-size="24" fill="#4a5568" style="font-family: Arial, sans-serif;" data-placeholder="content_3">这是第三段文字内容，用于展示完整的文本布局。</text>
+
+  <!-- Logo (右下角 - Black for light background) -->
+  <image x="1750" y="1010" width="150" height="50" href="../../../../logo/Black.png" preserveAspectRatio="xMidYMid meet" style=""/>
+</svg>
