@@ -1,52 +1,84 @@
 """Tests for SupplementAgent."""
 
 import pytest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-from app.models import UnifiedDocument, ImageElement, MagazineEditPlan, EditAction, BoundingBox, SlideEditPlan
+
+from app.models.unified_document import UnifiedDocument, ImageElement, TextElement, BoundingBox, ContentAssetLink
+from app.models.edit_actions import MagazineEditPlan, EditAction, SlideEditPlan
 from app.agents.supplement_agent import SupplementAgent
 
 
 @pytest.fixture
-def supplement_agent():
+def mock_settings():
+    """Mock app.core.config.settings."""
+    settings = MagicMock()
+    settings.PEXELS_API_KEY = "test-pexels-key"
+    settings.UNSPLASH_ACCESS_KEY = "test-unsplash-key"
+    settings.REPLICATE_API_TOKEN = "test-replicate-token"
+    settings.ASSETS_DIR = "/tmp/test_assets"
+    return settings
+
+
+@pytest.fixture
+def supplement_agent(mock_settings):
     """Create SupplementAgent instance for testing."""
-    with patch('app.core.config.settings') as mock_settings:
-        mock_settings.PEXELS_API_KEY = ""
-        mock_settings.UNSPLASH_ACCESS_KEY = ""
-        mock_settings.REPLICATE_API_TOKEN = ""
-        mock_settings.ASSETS_DIR = "/tmp/test_assets"
+    with patch('app.core.config.settings', mock_settings):
         return SupplementAgent(session_id="test-session")
 
 
 @pytest.fixture
-def sample_document_missing_images():
-    """Create UnifiedDocument with missing image paths."""
+def sample_document():
+    """Create UnifiedDocument with texts and images."""
     return UnifiedDocument(
         source_file="test.pptx",
         source_format="pptx",
         title="Test Document",
-        texts=[],
+        texts=[
+            TextElement(
+                id="text-1",
+                content="Business growth chart showing quarterly revenue increase",
+                page=0,
+                bbox=BoundingBox(left=10, top=10, width=80, height=20)
+            ),
+            TextElement(
+                id="text-2",
+                content="Team collaboration meeting with diverse members",
+                page=0,
+                bbox=BoundingBox(left=10, top=40, width=80, height=20)
+            )
+        ],
         images=[
             ImageElement(
                 id="img-1",
-                local_path="",  # Missing path - needs supplement
-                page=1,
+                local_path="",  # Missing path
+                page=0,
                 bbox=BoundingBox(left=60, top=10, width=90, height=40),
-                alt_text="Data growth chart showing upward trend"
+                alt_text="Data growth chart"
             ),
             ImageElement(
                 id="img-2",
-                local_path="",  # Missing path - needs supplement
-                page=1,
+                local_path="/existing/path.jpg",  # Existing path
+                page=0,
                 bbox=BoundingBox(left=60, top=50, width=90, height=80),
-                alt_text="Team collaboration meeting photo"
+                alt_text="Team photo"
+            )
+        ],
+        linkage=[
+            ContentAssetLink(
+                text_id="text-1",
+                asset_id="img-1",
+                asset_type="image",
+                strategy="semantic",
+                confidence=0.9
             )
         ]
     )
 
 
 @pytest.fixture
-def sample_edit_plan_missing_images():
-    """Create MagazineEditPlan with missing images."""
+def sample_edit_plan():
+    """Create MagazineEditPlan with replace_image actions."""
     return MagazineEditPlan(
         document_id="test-doc",
         template_id="modern",
@@ -59,13 +91,13 @@ def sample_edit_plan_missing_images():
                         type="replace_image",
                         target_selector="img-1",
                         source_id="img-1",
-                        content=""  # Empty content - needs supplement
+                        content=""
                     ),
                     EditAction(
                         type="replace_image",
                         target_selector="img-2",
                         source_id="img-2",
-                        content=""  # Empty content - needs supplement
+                        content=""
                     )
                 ]
             )
@@ -73,332 +105,147 @@ def sample_edit_plan_missing_images():
     )
 
 
-@pytest.fixture
-def sample_edit_plan_complete():
-    """Create MagazineEditPlan with complete image paths."""
-    return MagazineEditPlan(
-        document_id="test-doc",
-        template_id="modern",
-        pages=[
-            SlideEditPlan(
-                page_number=1,
-                template_page="cover",
-                actions=[
-                    EditAction(
-                        type="replace_image",
-                        target_selector="img-1",
-                        source_id="img-1",
-                        content="/existing/path/to/image1.png"
-                    ),
-                    EditAction(
-                        type="replace_image",
-                        target_selector="img-2",
-                        source_id="img-2",
-                        content="/existing/path/to/image2.png"
-                    )
-                ]
-            )
-        ]
-    )
+def _make_async_client_mock(get_side_effect=None, get_return=None):
+    """Create a mock for httpx.AsyncClient used as async context manager."""
+    mock_client = AsyncMock()
+    if get_side_effect:
+        mock_client.get.side_effect = get_side_effect
+    elif get_return:
+        mock_client.get.return_value = get_return
+    # Ensure __aenter__ returns the same mock so .get side_effect works
+    mock_client.__aenter__.return_value = mock_client
+    return mock_client
 
 
 class TestSupplementAgentSearchPexels:
     """Tests for _search_pexels method."""
 
     @pytest.mark.asyncio
-    async def test_search_pexels_api_call(self, supplement_agent):
-        """Test that Pexels API is called correctly."""
-        mock_response = AsyncMock()
-        mock_response.json.return_value = {
-            "photos": [
-                {
-                    "src": {"large": "https://images.pexels.com/photos/test1.jpg"},
-                    "photographer": "Test Photographer",
-                    "url": "https://www.pexels.com/photo/test1"
-                }
-            ]
+    async def test_search_pexels_downloads_image(self, supplement_agent, tmp_path):
+        """Test that Pexels search downloads and saves image."""
+        mock_search_resp = MagicMock()
+        mock_search_resp.json.return_value = {
+            "photos": [{"src": {"large2x": "https://example.com/image.jpg"}}]
         }
+        mock_search_resp.status_code = 200
 
-        mock_httpx = MagicMock()
-        mock_httpx.AsyncClient = MagicMock()
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock()
-        mock_httpx.AsyncClient.return_value = mock_client
+        mock_image_resp = MagicMock()
+        mock_image_resp.content = b"fake image data"
+        mock_image_resp.status_code = 200
 
-        with patch('app.agents.supplement_agent.httpx', mock_httpx):
-            results = await supplement_agent._search_pexels("business meeting", 1)
+        mock_client = _make_async_client_mock(get_side_effect=[mock_search_resp, mock_image_resp])
+        supplement_agent.output_dir = tmp_path
 
-            assert len(results) > 0
-            mock_client.get.assert_called_once()
+        with patch('app.agents.supplement_agent.httpx.AsyncClient', return_value=mock_client):
+            with patch.object(supplement_agent, '_extract_keywords', return_value="business chart"):
+                result = await supplement_agent._search_pexels("business chart", "img-1")
+
+                assert result is not None
+                assert result.name.startswith("img-1_")
+                assert result.suffix == ".jpg"
 
     @pytest.mark.asyncio
-    async def test_search_pexels_returns_image_urls(self, supplement_agent):
-        """Test that Pexels search returns valid image URLs."""
-        mock_response = AsyncMock()
-        mock_response.json.return_value = {
-            "photos": [
-                {
-                    "src": {"large": "https://images.pexels.com/photos/business.jpg"},
-                    "photographer": "Photographer 1"
-                },
-                {
-                    "src": {"large": "https://images.pexels.com/photos/meeting.jpg"},
-                    "photographer": "Photographer 2"
-                }
-            ]
-        }
+    async def test_search_pexels_api_error_returns_none(self, supplement_agent):
+        """Test that API error returns None."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
 
-        mock_httpx = MagicMock()
-        mock_httpx.AsyncClient = MagicMock()
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock()
-        mock_httpx.AsyncClient.return_value = mock_client
+        mock_client = _make_async_client_mock(get_return=mock_response)
 
-        with patch('app.agents.supplement_agent.httpx', mock_httpx):
-            results = await supplement_agent._search_pexels("business", 2)
+        with patch('app.agents.supplement_agent.httpx.AsyncClient', return_value=mock_client):
+            with patch.object(supplement_agent, '_extract_keywords', return_value="test"):
+                result = await supplement_agent._search_pexels("test", "img-1")
 
-            assert len(results) == 2
-            assert all(url.startswith("https://") for url in results)
-
-    @pytest.mark.asyncio
-    async def test_search_pexels_api_error_handling(self, supplement_agent):
-        """Test handling of Pexels API errors."""
-        mock_httpx = MagicMock()
-        mock_httpx.AsyncClient = MagicMock()
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(side_effect=Exception("API Error"))
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock()
-        mock_httpx.AsyncClient.return_value = mock_client
-
-        with patch('app.agents.supplement_agent.httpx', mock_httpx):
-            results = await supplement_agent._search_pexels("test", 1)
-
-            # Should return empty list on error
-            assert results == []
+                assert result is None
 
 
 class TestSupplementAgentSearchUnsplash:
-    """Tests for _search_unsplash method (fallback)."""
+    """Tests for _search_unsplash method."""
 
     @pytest.mark.asyncio
-    async def test_search_unsplash_fallback_call(self, supplement_agent):
-        """Test that Unsplash is called as fallback."""
-        mock_response = AsyncMock()
-        mock_response.json.return_value = {
-            "results": [
-                {
-                    "urls": {"full": "https://images.unsplash.com/photo-test1.jpg"},
-                    "user": {"name": "User 1"}
-                }
-            ]
+    async def test_search_unsplash_downloads_image(self, supplement_agent, tmp_path):
+        """Test that Unsplash search downloads and saves image."""
+        mock_search_resp = MagicMock()
+        mock_search_resp.json.return_value = {
+            "results": [{"urls": {"regular": "https://example.com/image.jpg"}}]
         }
+        mock_search_resp.status_code = 200
 
-        mock_httpx = MagicMock()
-        mock_httpx.AsyncClient = MagicMock()
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock()
-        mock_httpx.AsyncClient.return_value = mock_client
+        mock_image_resp = MagicMock()
+        mock_image_resp.content = b"fake image data"
+        mock_image_resp.status_code = 200
 
-        with patch('app.agents.supplement_agent.httpx', mock_httpx):
-            results = await supplement_agent._search_unsplash("technology", 1)
+        mock_client = _make_async_client_mock(get_side_effect=[mock_search_resp, mock_image_resp])
+        supplement_agent.output_dir = tmp_path
 
-            assert len(results) > 0
+        with patch('app.agents.supplement_agent.httpx.AsyncClient', return_value=mock_client):
+            with patch.object(supplement_agent, '_extract_keywords', return_value="business"):
+                result = await supplement_agent._search_unsplash("business", "img-1")
 
-    @pytest.mark.asyncio
-    async def test_search_unsplash_returns_different_source(self, supplement_agent):
-        """Test that Unsplash returns Unsplash URLs, not Pexels."""
-        mock_response = AsyncMock()
-        mock_response.json.return_value = {
-            "results": [
-                {
-                    "urls": {"full": "https://images.unsplash.com/photo-123.jpg"},
-                    "user": {"name": "Photographer"}
-                }
-            ]
-        }
-
-        mock_httpx = MagicMock()
-        mock_httpx.AsyncClient = MagicMock()
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock()
-        mock_httpx.AsyncClient.return_value = mock_client
-
-        with patch('app.agents.supplement_agent.httpx', mock_httpx):
-            results = await supplement_agent._search_unsplash("test", 1)
-
-            # Should be Unsplash URLs
-            assert any("unsplash" in url for url in results)
+                assert result is not None
+                assert result.name.startswith("img-1_")
 
 
 class TestSupplementAgentExtractKeywords:
     """Tests for _extract_keywords method."""
 
     @pytest.mark.asyncio
-    async def test_extract_keywords_calls_glm5(self, supplement_agent):
-        """Test that keyword extraction calls GLM-5 API."""
-        description = "A professional business meeting with diverse team members discussing quarterly results"
+    async def test_extract_keywords_calls_zhipu_client(self, supplement_agent):
+        """Test that keyword extraction calls ZhipuClient."""
+        mock_zhipu = MagicMock()
+        mock_zhipu_client = AsyncMock()
+        mock_zhipu_client.generate_search_keywords.return_value = ["business", "chart", "growth"]
+        mock_zhipu.ZhipuClient.return_value = mock_zhipu_client
 
-        mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=MagicMock(
-            choices=[MagicMock(message=MagicMock(
-                content='["business", "meeting", "team", "collaboration"]'
-            ))]
-        ))
+        with patch('app.services.zhipu_client.ZhipuClient', mock_zhipu.ZhipuClient):
+            keywords = await supplement_agent._extract_keywords("Business growth chart showing quarterly revenue")
 
-        with patch('app.agents.supplement_agent.client', mock_client):
-            keywords = await supplement_agent._extract_keywords(description)
-
-            mock_client.chat.completions.create.assert_called_once()
-            assert isinstance(keywords, list)
-            assert len(keywords) > 0
+            assert keywords == "business chart growth"
 
     @pytest.mark.asyncio
-    async def test_extract_keywords_relevant_terms(self, supplement_agent):
-        """Test that extracted keywords are relevant to description."""
-        description = "Data visualization showing sales growth trends over the last quarter"
+    async def test_extract_keywords_fallback_on_error(self, supplement_agent):
+        """Test fallback to first 5 words on error."""
+        mock_zhipu = MagicMock()
+        mock_zhipu.ZhipuClient.side_effect = Exception("API Error")
 
-        mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=MagicMock(
-            choices=[MagicMock(message=MagicMock(
-                content='["data", "visualization", "sales", "growth", "trends"]'
-            ))]
-        ))
+        with patch('app.services.zhipu_client.ZhipuClient', mock_zhipu.ZhipuClient):
+            keywords = await supplement_agent._extract_keywords("one two three four five six")
 
-        with patch('app.agents.supplement_agent.client', mock_client):
-            keywords = await supplement_agent._extract_keywords(description)
+            assert keywords == "one two three four five"
 
-            # Should contain relevant keywords
-            assert any(kw in description.lower() for kw in keywords)
 
-    @pytest.mark.asyncio
-    async def test_extract_keywords_empty_description(self, supplement_agent):
-        """Test keyword extraction with empty description."""
-        mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=MagicMock(
-            choices=[MagicMock(message=MagicMock(
-                content='[]'
-            ))]
-        ))
+class TestSupplementAgentFindTextContext:
+    """Tests for _find_text_context method."""
 
-        with patch('app.agents.supplement_agent.client', mock_client):
-            keywords = await supplement_agent._extract_keywords("")
+    def test_find_text_context_from_linkage(self, supplement_agent, sample_document, sample_edit_plan):
+        """Test finding context from linkage."""
+        context = supplement_agent._find_text_context(sample_document, "img-1", sample_edit_plan.pages[0])
 
-            assert keywords == []
+        assert "Business growth chart" in context
 
-    @pytest.mark.asyncio
-    async def test_extract_keywords_limits_count(self, supplement_agent):
-        """Test that keyword extraction limits to reasonable number."""
-        description = "Complex description with many potential keywords for testing the limit functionality"
+    def test_find_text_context_from_page_texts(self, supplement_agent, sample_document, sample_edit_plan):
+        """Test finding context from page texts when no linkage."""
+        context = supplement_agent._find_text_context(sample_document, "img-nonexistent", sample_edit_plan.pages[0])
 
-        mock_client = MagicMock()
-        # Return more keywords than expected limit
-        mock_client.chat.completions.create = AsyncMock(return_value=MagicMock(
-            choices=[MagicMock(message=MagicMock(
-                content='["kw1", "kw2", "kw3", "kw4", "kw5", "kw6", "kw7", "kw8"]'
-            ))]
-        ))
-
-        with patch('app.agents.supplement_agent.client', mock_client):
-            keywords = await supplement_agent._extract_keywords(description)
-
-            # Should limit to reasonable number (typically 3-5)
-            assert len(keywords) <= 8
+        assert isinstance(context, str)
 
 
 class TestSupplementAgentSupplement:
     """Tests for supplement method."""
 
     @pytest.mark.asyncio
-    async def test_supplement_missing_images(self, supplement_agent, sample_document_missing_images, sample_edit_plan_missing_images):
-        """Test supplementing missing images in edit plan."""
-        # Mock image search
-        mock_httpx = MagicMock()
-        mock_httpx.AsyncClient = MagicMock()
-        mock_client = AsyncMock()
-        mock_response = AsyncMock()
-        mock_response.json.return_value = {
-            "photos": [{
-                "src": {"large": "https://images.pexels.com/photos/test.jpg"}
-            }]
-        }
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock()
-        mock_httpx.AsyncClient.return_value = mock_client
+    async def test_supplement_updates_missing_images(self, supplement_agent, tmp_path):
+        """Test supplementing missing images updates doc.images."""
+        mock_path = tmp_path / "supplemented_img-1.jpg"
+        mock_path.write_bytes(b"fake image")
 
-        # Mock keyword extraction
-        mock_glm_client = MagicMock()
-        mock_glm_client.chat.completions.create = AsyncMock(return_value=MagicMock(
-            choices=[MagicMock(message=MagicMock(
-                content='["data", "chart"]'
-            ))]
-        ))
-
-        with patch('app.agents.supplement_agent.httpx', mock_httpx):
-            with patch('app.agents.supplement_agent.client', mock_glm_client):
-                result = await supplement_agent.supplement(
-                    sample_document_missing_images,
-                    sample_edit_plan_missing_images
-                )
-
-                # All missing images should be supplemented
-                img_actions = [a for page in result.pages for a in page.actions if a.type == "replace_image"]
-                assert all(a.content for a in img_actions)
-
-    @pytest.mark.asyncio
-    async def test_supplement_skips_existing_images(self, supplement_agent, sample_document_missing_images, sample_edit_plan_complete):
-        """Test that supplement skips images that already have paths."""
-        # Mock image search (should not be called for complete plan)
-        mock_httpx = MagicMock()
-        mock_httpx.AsyncClient = MagicMock()
-
-        with patch('app.agents.supplement_agent.httpx', mock_httpx):
-            result = await supplement_agent.supplement(
-                sample_document_missing_images,
-                sample_edit_plan_complete
-            )
-
-            # Should not modify existing image paths
-            img_actions = [a for page in result.pages for a in page.actions if a.type == "replace_image"]
-            assert all(a.content.startswith("/existing/") for a in img_actions)
-
-            # API should not have been called
-            assert not mock_httpx.AsyncClient.called
-
-    @pytest.mark.asyncio
-    async def test_supplement_with_empty_plan(self, supplement_agent, sample_document_missing_images):
-        """Test supplement with no image actions."""
-        empty_plan = MagazineEditPlan(
-            document_id="test-doc",
-            template_id="modern",
-            pages=[
-                SlideEditPlan(
-                    page_number=1,
-                    template_page="cover",
-                    actions=[
-                        EditAction(type="replace_text", target_selector="text-1", source_id="text-1", content="Text")
-                    ]
-                )
-            ]
+        doc = UnifiedDocument(
+            source_file="test.pptx",
+            source_format="pptx",
+            images=[
+                ImageElement(id="img-1", local_path="/nonexistent/missing.png", page=0),
+            ],
         )
-
-        result = await supplement_agent.supplement(sample_document_missing_images, empty_plan)
-
-        # Should return same plan (no images to supplement)
-        assert result.pages[0].actions == empty_plan.pages[0].actions
-
-    @pytest.mark.asyncio
-    async def test_supplement_preserves_text_actions(self, supplement_agent, sample_document_missing_images):
-        """Test that supplement does not modify text actions."""
         plan = MagazineEditPlan(
             document_id="test-doc",
             template_id="modern",
@@ -406,68 +253,77 @@ class TestSupplementAgentSupplement:
                 SlideEditPlan(
                     page_number=1,
                     template_page="cover",
-                    actions=[
-                        EditAction(type="replace_text", target_selector="text-1", source_id="text-1", content="Original text"),
-                        EditAction(type="replace_image", target_selector="img-1", source_id="img-1", content="")
-                    ]
+                    actions=[EditAction(type="replace_image", target_selector="img-1", source_id="img-1", content="")]
                 )
             ]
         )
 
-        # Mock image search
-        mock_httpx = MagicMock()
-        mock_httpx.AsyncClient = MagicMock()
-        mock_client = AsyncMock()
-        mock_response = AsyncMock()
-        mock_response.json.return_value = {"photos": [{"src": {"large": "https://test.jpg"}}]}
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock()
-        mock_httpx.AsyncClient.return_value = mock_client
+        with patch.object(supplement_agent, '_try_supplement', return_value=mock_path):
+            result = await supplement_agent.supplement(doc, plan)
 
-        # Mock keyword extraction
-        mock_glm_client = MagicMock()
-        mock_glm_client.chat.completions.create = AsyncMock(return_value=MagicMock(
-            choices=[MagicMock(message=MagicMock(content='["test"]'))]
-        ))
-
-        with patch('app.agents.supplement_agent.httpx', mock_httpx):
-            with patch('app.agents.supplement_agent.client', mock_glm_client):
-                result = await supplement_agent.supplement(sample_document_missing_images, plan)
-
-                # Text action should be unchanged
-                text_action = next((a for page in result.pages for a in page.actions if a.type == "replace_text"), None)
-                assert text_action is not None
-                assert text_action.content == "Original text"
+            assert result is None
+            img = next((i for i in doc.images if i.id == "img-1"), None)
+            assert img is not None
+            assert str(mock_path) == img.local_path
 
     @pytest.mark.asyncio
-    async def test_supplement_marks_supplemented_images(self, supplement_agent, sample_document_missing_images, sample_edit_plan_missing_images):
-        """Test that supplemented images are marked appropriately."""
-        # Mock image search
-        mock_httpx = MagicMock()
-        mock_httpx.AsyncClient = MagicMock()
-        mock_client = AsyncMock()
-        mock_response = AsyncMock()
-        mock_response.json.return_value = {"photos": [{"src": {"large": "https://test.jpg"}}]}
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock()
-        mock_httpx.AsyncClient.return_value = mock_client
+    async def test_supplement_skips_existing_images(self, supplement_agent, tmp_path):
+        """Test that supplement skips images with existing local files."""
+        existing_img = tmp_path / "existing.jpg"
+        existing_img.write_bytes(b"real image data")
 
-        # Mock keyword extraction
-        mock_glm_client = MagicMock()
-        mock_glm_client.chat.completions.create = AsyncMock(return_value=MagicMock(
-            choices=[MagicMock(message=MagicMock(content='["test"]'))]
-        ))
-
-        with patch('app.agents.supplement_agent.httpx', mock_httpx):
-            with patch('app.agents.supplement_agent.client', mock_glm_client):
-                result = await supplement_agent.supplement(
-                    sample_document_missing_images,
-                    sample_edit_plan_missing_images
+        doc = UnifiedDocument(
+            source_file="test.pptx",
+            source_format="pptx",
+            images=[
+                ImageElement(id="img-1", local_path=str(existing_img), page=0),
+            ],
+        )
+        plan = MagazineEditPlan(
+            document_id="test-doc",
+            template_id="modern",
+            pages=[
+                SlideEditPlan(
+                    page_number=1,
+                    template_page="cover",
+                    actions=[EditAction(type="replace_image", target_selector="img-1", source_id="img-1", content="")]
                 )
+            ]
+        )
 
-                # Supplemented images should have valid content
-                img_actions = [a for page in result.pages for a in page.actions if a.type == "replace_image"]
-                assert all(a.content for a in img_actions)
-                assert all(a.content.startswith("http") for a in img_actions)
+        with patch.object(supplement_agent, '_try_supplement') as mock_try:
+            result = await supplement_agent.supplement(doc, plan)
+
+            assert result is None
+            mock_try.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_supplement_with_no_missing_images(self, supplement_agent, tmp_path):
+        """Test supplement with no missing images is a no-op."""
+        existing = tmp_path / "real_image.jpg"
+        existing.write_bytes(b"real image bytes")
+
+        doc = UnifiedDocument(
+            source_file="test.pptx",
+            source_format="pptx",
+            images=[
+                ImageElement(id="img-1", local_path=str(existing), page=0)
+            ]
+        )
+        plan = MagazineEditPlan(
+            document_id="test-doc",
+            template_id="modern",
+            pages=[
+                SlideEditPlan(
+                    page_number=1,
+                    template_page="cover",
+                    actions=[EditAction(type="replace_image", target_selector="img-1", source_id="img-1", content="")]
+                )
+            ]
+        )
+
+        with patch.object(supplement_agent, '_try_supplement') as mock_try:
+            result = await supplement_agent.supplement(doc, plan)
+
+            assert result is None
+            mock_try.assert_not_called()

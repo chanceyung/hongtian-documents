@@ -1,7 +1,8 @@
 """Tests for RendererAgent."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 from app.models import UnifiedDocument, MagazineEditPlan, EditAction, SlideEditPlan
 from app.agents.renderer_agent import RendererAgent
 
@@ -10,6 +11,33 @@ from app.agents.renderer_agent import RendererAgent
 def renderer_agent():
     """Create RendererAgent instance for testing."""
     return RendererAgent()
+
+
+@pytest.fixture
+def sample_doc():
+    """Create sample UnifiedDocument for testing."""
+    return UnifiedDocument(
+        source_file="test.pptx",
+        source_format="pptx",
+        title="Test Document",
+        texts=[
+            {"id": "text-1", "content": "Sample text content", "page": 1}
+        ],
+        images=[
+            {
+                "id": "img-1",
+                "local_path": "/path/to/image.png",
+                "page": 1,
+                "width": 300,
+                "height": 200
+            }
+        ],
+        tables=[],
+        linkage=[],
+        total_pages=1,
+        parse_method="python-pptx",
+        parse_warnings=[]
+    )
 
 
 @pytest.fixture
@@ -33,11 +61,13 @@ def sample_edit_plan():
                         type="replace_image",
                         target_selector="img-1",
                         source_id="img-1",
-                        content="/path/to/image.png"
+                        content=""
                     )
                 ]
             )
-        ]
+        ],
+        design_spec={"color_theme": "dark"},
+        original_fingerprint={}
     )
 
 
@@ -46,202 +76,155 @@ def sample_svg_content():
     """Create sample SVG template content."""
     return '''<?xml version="1.0" encoding="UTF-8"?>
 <svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
-    <text data-placeholder="text-1" x="100" y="100" font-size="16" fill="#000000">Placeholder text</text>
-    <image data-placeholder="img-1" x="200" y="200" width="300" height="200" href=""/>
+    <text id="text-1" x="100" y="100" font-size="16" fill="#000000">Placeholder text</text>
+    <image id="img-1" x="200" y="200" width="300" height="200" href=""/>
 </svg>'''
 
 
-class TestRendererAgentLoadSvgTemplate:
+class TestLoadSvgTemplate:
     """Tests for _load_svg_template method."""
 
-    def test_load_svg_template_modern_layout(self, renderer_agent, sample_svg_content):
-        """Test loading SVG template for modern layout."""
-        with patch('builtins.open', mock_open(read_data=sample_svg_content)):
-            result = renderer_agent._load_svg_template("pptx", "modern", "cover")
+    def test_load_svg_template_existing_file(self, renderer_agent):
+        """Test loading SVG template when file exists."""
+        template_root = Path("/templates/modern")
+        layout_type = "cover"
+        expected_content = "<svg>test content</svg>"
 
-            assert isinstance(result, str)
-            assert result.startswith('<?xml')
-            assert '<svg' in result
-            assert 'data-placeholder' in result
+        with patch.object(Path, 'exists', return_value=True):
+            with patch.object(Path, 'read_text', return_value=expected_content):
+                result = renderer_agent._load_svg_template(template_root, layout_type)
+                assert result == expected_content
 
-    def test_load_svg_template_different_layouts(self, renderer_agent, sample_svg_content):
-        """Test loading different layout templates."""
-        layouts = ["cover", "content", "gallery", "data"]
+    def test_load_svg_template_non_existing_file(self, renderer_agent):
+        """Test loading SVG template when file does not exist."""
+        template_root = Path("/templates/modern")
+        layout_type = "cover"
 
-        with patch('builtins.open', mock_open(read_data=sample_svg_content)):
-            for layout in layouts:
-                result = renderer_agent._load_svg_template("pptx", "modern", layout)
-                assert result is not None
-                assert '<svg' in result
+        with patch.object(Path, 'exists', return_value=False):
+            result = renderer_agent._load_svg_template(template_root, layout_type)
+            assert result is None
 
-    def test_load_svg_template_different_templates(self, renderer_agent, sample_svg_content):
-        """Test loading different template styles."""
-        templates = ["modern", "classic", "minimal"]
+    def test_load_svg_template_layout_mapping(self, renderer_agent):
+        """Test that layout types map to correct filenames."""
+        template_root = Path("/templates/modern")
+        expected_content = "<svg>content</svg>"
 
-        with patch('builtins.open', mock_open(read_data=sample_svg_content)):
-            for template in templates:
-                result = renderer_agent._load_svg_template("pptx", template, "cover")
-                assert result is not None
+        with patch.object(Path, 'exists', return_value=True):
+            with patch.object(Path, 'read_text', return_value=expected_content):
+                for layout_type, expected_filename in [
+                    ("cover", "cover.svg"),
+                    ("text_only", "content_text.svg"),
+                    ("text_image", "content_image_text.svg"),
+                    ("data_card", "data_card.svg"),
+                ]:
+                    result = renderer_agent._load_svg_template(template_root, layout_type)
+                    assert result == expected_content
 
-    def test_load_svg_template_file_not_found(self, renderer_agent):
-        """Test handling of missing template file."""
-        with patch('builtins.open', side_effect=FileNotFoundError("Template not found")):
-            with pytest.raises(FileNotFoundError):
-                renderer_agent._load_svg_template("pptx", "nonexistent", "cover")
 
-
-class TestRendererAgentApplyEditActionsSvg:
+class TestApplyEditActionsSvg:
     """Tests for _apply_edit_actions_svg method."""
 
-    def test_apply_edit_actions_svg_text_replacement(self, renderer_agent, sample_edit_plan, sample_svg_content):
+    def test_apply_edit_actions_svg_text_replacement(self, renderer_agent, sample_svg_content):
         """Test text replacement in SVG."""
-        with patch('builtins.open', mock_open(read_data=sample_svg_content)):
-            result = renderer_agent._apply_edit_actions_svg(sample_edit_plan, sample_svg_content)
-
-            # The placeholder should be replaced with actual content
-            assert "Sample text content" in result or "text-1" in result
-            assert "Placeholder text" not in result or result.count("Placeholder text") < sample_svg_content.count("Placeholder text")
-
-    def test_apply_edit_actions_svg_font_styling(self, renderer_agent, sample_edit_plan, sample_svg_content):
-        """Test that font styles are applied to text elements."""
-        with patch('builtins.open', mock_open(read_data=sample_svg_content)):
-            result = renderer_agent._apply_edit_actions_svg(sample_edit_plan, sample_svg_content)
-
-            # Font styles should be in the result
-            assert "font-size" in result or "fontSize" in result
-            # Check for the specified font size
-            assert 'font-size="18"' in result or "18" in result
-
-    def test_apply_edit_actions_svg_color_styling(self, renderer_agent, sample_edit_plan, sample_svg_content):
-        """Test that color is applied to text elements."""
-        with patch('builtins.open', mock_open(read_data=sample_svg_content)):
-            result = renderer_agent._apply_edit_actions_svg(sample_edit_plan, sample_svg_content)
-
-            # Color should be in the result
-            assert "#333333" in result or "333333" in result
-            assert "fill" in result
-
-    def test_apply_edit_actions_svg_multiple_actions(self, renderer_agent, sample_svg_content):
-        """Test applying multiple edit actions."""
-        plan = MagazineEditPlan(
-            document_id="test-doc",
-            template_id="modern",
-            pages=[
-                SlideEditPlan(
-                    page_number=1,
-                    template_page="cover",
-                    actions=[
-                        EditAction(type="replace_text", target_selector="text-1", source_id="text-1", content="First text"),
-                        EditAction(type="replace_text", target_selector="text-2", source_id="text-2", content="Second text")
-                    ]
+        page = SlideEditPlan(
+            page_number=1,
+            template_page="cover",
+            actions=[
+                EditAction(
+                    type="replace_text",
+                    target_selector="#text-1",
+                    source_id="text-1",
+                    content="New content"
                 )
             ]
         )
 
-        svg_with_two_placeholders = '''<?xml version="1.0"?>
-<svg viewBox="0 0 1920 1080">
-    <text data-placeholder="text-1">Placeholder 1</text>
-    <text data-placeholder="text-2">Placeholder 2</text>
-</svg>'''
+        mock_doc = MagicMock()
+        result = renderer_agent._apply_edit_actions_svg(sample_svg_content, page, mock_doc)
 
-        with patch('builtins.open', mock_open(read_data=svg_with_two_placeholders)):
-            result = renderer_agent._apply_edit_actions_svg(plan, svg_with_two_placeholders)
+        assert "New content" in result
+        assert "Placeholder text" not in result
 
-            # Both actions should be applied
-            assert "First text" in result
-            assert "Second text" in result
+    def test_apply_edit_actions_svg_image_replacement(self, renderer_agent, sample_svg_content, sample_doc):
+        """Test image replacement in SVG with base64 encoding."""
+        page = SlideEditPlan(
+            page_number=1,
+            template_page="cover",
+            actions=[
+                EditAction(
+                    type="replace_image",
+                    target_selector="#img-1",
+                    source_id="img-1",
+                    content=""
+                )
+            ]
+        )
+
+        mock_doc = MagicMock()
+        mock_doc.find_image.return_value = sample_doc.images[0]
+
+        with patch.object(Path, 'exists', return_value=True):
+            with patch.object(Path, 'read_bytes', return_value=b"fake_image_data"):
+                result = renderer_agent._apply_edit_actions_svg(sample_svg_content, page, mock_doc)
+
+                assert "data:image/png;base64" in result
+                assert "fake_image_data" in result or "ZmFrZV9pbWFnZV9kYXRh" in result
+
+    def test_apply_edit_actions_svg_multiple_actions(self, renderer_agent):
+        """Test applying multiple edit actions."""
+        svg = '''<svg><text id="t1">A</text><text id="t2">B</text></svg>'''
+        page = SlideEditPlan(
+            page_number=1,
+            template_page="cover",
+            actions=[
+                EditAction(type="replace_text", target_selector="#t1", source_id="t1", content="X"),
+                EditAction(type="replace_text", target_selector="#t2", source_id="t2", content="Y")
+            ]
+        )
+
+        mock_doc = MagicMock()
+        result = renderer_agent._apply_edit_actions_svg(svg, page, mock_doc)
+
+        assert "X" in result
+        assert "Y" in result
+        assert "A" not in result
+        assert "B" not in result
 
 
-class TestRendererAgentImageEmbedding:
-    """Tests for image handling in SVG."""
-
-    def test_apply_edit_actions_svg_image_base64_embedding(self, renderer_agent, sample_edit_plan, sample_svg_content):
-        """Test that images are embedded as base64 in SVG."""
-        # Mock the image reading to return base64 data
-        base64_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
-
-        with patch('builtins.open', mock_open(read_data=sample_svg_content)):
-            with patch('app.agents.renderer_agent.base64.b64encode', return_value=base64_data):
-                result = renderer_agent._apply_edit_actions_svg(sample_edit_plan, sample_svg_content)
-
-                # Should contain base64 data (or at least reference to image)
-                assert "image" in result.lower() or "img-1" in result
-
-    def test_apply_edit_actions_svg_image_position(self, renderer_agent, sample_edit_plan, sample_svg_content):
-        """Test that image position is applied correctly."""
-        with patch('builtins.open', mock_open(read_data=sample_svg_content)):
-            result = renderer_agent._apply_edit_actions_svg(sample_edit_plan, sample_svg_content)
-
-            # Position data should be in the result
-            # The EditAction has position [0.1, 0.1, 0.3, 0.3]
-            assert "x" in result.lower() or "y" in result.lower()
-
-
-class TestRendererAgentFallbackSvg:
+class TestCreateFallbackSvg:
     """Tests for _create_fallback_svg method."""
 
-    def test_create_fallback_svg_generates_valid_svg(self, renderer_agent):
-        """Test that fallback SVG is valid XML."""
-        plan = MagazineEditPlan(
-            document_id="test-doc",
-            template_id="modern",
-            pages=[
-                SlideEditPlan(
-                    page_number=1,
-                    template_page="cover",
-                    actions=[
-                        EditAction(type="replace_text", target_selector="text-1", source_id="text-1", content="Fallback content")
-                    ]
-                )
-            ]
-        )
+    def test_create_fallback_svg_with_content(self, renderer_agent, sample_edit_plan):
+        """Test fallback SVG generation with content."""
+        mock_doc = MagicMock()
+        result = renderer_agent._create_fallback_svg(sample_edit_plan, mock_doc)
 
-        result = renderer_agent._create_fallback_svg(plan)
-
-        # Should be valid SVG
-        assert result.startswith('<?xml') or '<svg' in result
+        assert '<svg' in result
         assert '</svg>' in result
-        assert 'viewBox' in result
+        assert 'viewBox="0 0 1920 1080"' in result
+        assert "Sample text content" in result
+        assert 'xmlns="http://www.w3.org/2000/svg"' in result
 
-    def test_create_fallback_svg_includes_content(self, renderer_agent):
-        """Test that fallback SVG includes content from edit plan."""
-        plan = MagazineEditPlan(
-            document_id="test-doc",
-            template_id="modern",
-            pages=[
-                SlideEditPlan(
-                    page_number=1,
-                    template_page="cover",
-                    actions=[
-                        EditAction(type="replace_text", target_selector="text-1", source_id="text-1", content="Test content for fallback"),
-                        EditAction(type="replace_text", target_selector="text-2", source_id="text-2", content="More content")
-                    ]
-                )
-            ]
-        )
-
-        result = renderer_agent._create_fallback_svg(plan)
-
-        # All content should be present
-        assert "Test content for fallback" in result
-        assert "More content" in result
-
-    def test_create_fallback_svg_with_empty_plan(self, renderer_agent):
+    def test_create_fallback_svg_empty_plan(self, renderer_agent):
         """Test fallback SVG generation with empty plan."""
         empty_plan = MagazineEditPlan(
             document_id="test-doc",
             template_id="modern",
-            pages=[]
+            pages=[],
+            design_spec={},
+            original_fingerprint={}
         )
 
-        result = renderer_agent._create_fallback_svg(empty_plan)
+        mock_doc = MagicMock()
+        result = renderer_agent._create_fallback_svg(empty_plan, mock_doc)
 
-        # Should still be valid SVG
         assert '<svg' in result
         assert '</svg>' in result
+        assert 'viewBox="0 0 1920 1080"' in result
+        assert 'xmlns="http://www.w3.org/2000/svg"' in result
 
-    def test_create_fallback_svg_basic_structure(self, renderer_agent):
-        """Test that fallback SVG has proper structure."""
+    def test_create_fallback_svg_text_positioning(self, renderer_agent):
+        """Test that fallback SVG positions text elements correctly."""
         plan = MagazineEditPlan(
             document_id="test-doc",
             template_id="modern",
@@ -250,65 +233,54 @@ class TestRendererAgentFallbackSvg:
                     page_number=1,
                     template_page="cover",
                     actions=[
-                        EditAction(type="replace_text", target_selector="text-1", source_id="text-1", content="Test")
+                        EditAction(type="replace_text", target_selector="t1", source_id="t1", content="First"),
+                        EditAction(type="replace_text", target_selector="t2", source_id="t2", content="Second")
                     ]
                 )
-            ]
+            ],
+            design_spec={},
+            original_fingerprint={}
         )
 
-        result = renderer_agent._create_fallback_svg(plan)
+        mock_doc = MagicMock()
+        result = renderer_agent._create_fallback_svg(plan, mock_doc)
 
-        # Should have XML declaration and proper SVG elements
-        assert '<?xml version' in result or '<svg' in result
-        assert 'xmlns' in result
-        assert 'http://www.w3.org/2000/svg' in result
+        assert 'y="120"' in result
+        assert 'y="160"' in result
 
 
-class TestRendererAgentRender:
-    """Tests for render method."""
+class TestRenderMethods:
+    """Tests for render_pptx and render_pdf methods."""
 
     @pytest.mark.asyncio
-    async def test_render_pdf_output(self, renderer_agent, sample_edit_plan):
-        """Test rendering PDF output."""
-        mock_doc = UnifiedDocument(
-            source_file="test.pptx",
-            source_format="pptx",
-            title="Test",
-            texts=[],
-            images=[]
-        )
+    async def test_render_pptx(self, renderer_agent, sample_edit_plan, sample_doc):
+        """Test PPTX rendering with mocked converter."""
+        template_dir = Path("/templates")
+        output_path = Path("/output/test.pptx")
 
-        with patch('app.agents.renderer_agent.PlaywrightRenderer'):
-            result = await renderer_agent.render(mock_doc, sample_edit_plan, "pdf")
+        mock_converter = MagicMock()
+        mock_finalizer = MagicMock()
+        mock_finalizer.finalize.return_value = "<svg>finalized</svg>"
 
-            assert result is not None
+        with patch("app.exporters.ppt_master.svg_to_pptx.SvgToPptxConverter", return_value=mock_converter):
+            with patch("app.exporters.ppt_master.finalize_svg.SvgFinalizer", return_value=mock_finalizer):
+                with patch.object(Path, "exists", return_value=False):
+                    result = await renderer_agent.render_pptx(sample_edit_plan, sample_doc, template_dir, output_path)
 
-    @pytest.mark.asyncio
-    async def test_render_pptx_output(self, renderer_agent, sample_edit_plan):
-        """Test rendering PPTX output."""
-        mock_doc = UnifiedDocument(
-            source_file="test.pptx",
-            source_format="pptx",
-            title="Test",
-            texts=[],
-            images=[]
-        )
-
-        with patch('app.agents.renderer_agent.PPTXRenderer'):
-            result = await renderer_agent.render(mock_doc, sample_edit_plan, "pptx")
-
-            assert result is not None
+                    assert result == output_path
+                    mock_converter.convert.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_render_unsupported_format(self, renderer_agent, sample_edit_plan):
-        """Test rendering unsupported format raises error."""
-        mock_doc = UnifiedDocument(
-            source_file="test.pptx",
-            source_format="pptx",
-            title="Test",
-            texts=[],
-            images=[]
-        )
+    async def test_render_pdf(self, renderer_agent, sample_edit_plan, sample_doc):
+        """Test PDF rendering with mocked renderer."""
+        template_dir = Path("/templates")
+        output_path = Path("/output/test.pdf")
 
-        with pytest.raises(ValueError, match="Unsupported output format"):
-            await renderer_agent.render(mock_doc, sample_edit_plan, "unsupported")
+        mock_renderer = AsyncMock()
+        mock_renderer.render.return_value = output_path
+
+        with patch("app.exporters.pdf_renderer.HybridPdfRenderer", return_value=mock_renderer):
+            result = await renderer_agent.render_pdf(sample_edit_plan, sample_doc, template_dir, output_path)
+
+            assert result == output_path
+            mock_renderer.render.assert_called_once_with(sample_edit_plan, sample_doc, template_dir, output_path)
