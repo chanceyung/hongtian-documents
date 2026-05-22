@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { getDb, saveDatabase } from "./queries/connection";
 import { tasks, agentStates, messages } from "@db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 
 const AGENT_PIPELINE = [
   { type: "coordinator", name: "协调 Agent", duration: 2000 },
@@ -78,59 +78,67 @@ export const taskRouter = createRouter({
     saveDatabase();
 
     (async () => {
-      let overallProgress = 0;
-      for (let i = 0; i < AGENT_PIPELINE.length; i++) {
-        const agent = AGENT_PIPELINE[i];
-        const db = await getDb();
+      try {
+        let overallProgress = 0;
+        for (let i = 0; i < AGENT_PIPELINE.length; i++) {
+          const agent = AGENT_PIPELINE[i];
+          const db = await getDb();
 
-        await db.update(agentStates).set({
-          status: "running",
-          startedAt: new Date(),
-          logs: JSON.stringify([`开始执行: ${agent.name}`]),
-        }).where(eq(agentStates.taskId, input.taskId));
-        saveDatabase();
+          await db.update(agentStates).set({
+            status: "running",
+            startedAt: new Date(),
+            logs: JSON.stringify([`开始执行: ${agent.name}`]),
+          }).where(and(eq(agentStates.taskId, input.taskId), eq(agentStates.agentType, agent.type)));
+          saveDatabase();
 
-        const steps = 5;
-        for (let step = 1; step <= steps; step++) {
-          await new Promise(r => setTimeout(r, agent.duration / steps));
-          const progress = Math.round((step / steps) * 100);
-          overallProgress = Math.round(((i + step / steps) / AGENT_PIPELINE.length) * 100);
+          const steps = 5;
+          for (let step = 1; step <= steps; step++) {
+            await new Promise(r => setTimeout(r, agent.duration / steps));
+            const progress = Math.round((step / steps) * 100);
+            overallProgress = Math.round(((i + step / steps) / AGENT_PIPELINE.length) * 100);
 
-          const logMessages = [
-            `开始执行: ${agent.name}`,
-            `${agent.name} 处理中... (${step}/${steps})`,
-            `完成阶段 ${step}/${steps}`,
-          ].slice(0, step + 1);
+            const logMessages = [
+              `开始执行: ${agent.name}`,
+              `${agent.name} 处理中... (${step}/${steps})`,
+              `完成阶段 ${step}/${steps}`,
+            ].slice(0, step + 1);
 
-          await db.update(agentStates).set({ progress, logs: JSON.stringify(logMessages) })
-            .where(eq(agentStates.taskId, input.taskId));
-          await db.update(tasks).set({ progress: Math.min(overallProgress, 99) })
-            .where(eq(tasks.id, input.taskId));
+            await db.update(agentStates).set({ progress, logs: JSON.stringify(logMessages) })
+              .where(and(eq(agentStates.taskId, input.taskId), eq(agentStates.agentType, agent.type)));
+            await db.update(tasks).set({ progress: Math.min(overallProgress, 99) })
+              .where(eq(tasks.id, input.taskId));
+            saveDatabase();
+          }
+
+          await db.update(agentStates).set({
+            status: "completed", progress: 100, completedAt: new Date(),
+            logs: JSON.stringify([`开始执行: ${agent.name}`, `${agent.name} 执行完成`]),
+          }).where(and(eq(agentStates.taskId, input.taskId), eq(agentStates.agentType, agent.type)));
           saveDatabase();
         }
 
-        await db.update(agentStates).set({
+        const db = await getDb();
+        await db.update(tasks).set({
           status: "completed", progress: 100, completedAt: new Date(),
-          logs: JSON.stringify([`开始执行: ${agent.name}`, `${agent.name} 执行完成`]),
-        }).where(eq(agentStates.taskId, input.taskId));
+          outputFile: `output_${input.taskId}.pdf`,
+        }).where(eq(tasks.id, input.taskId));
+
+        const [task] = await db.select().from(tasks).where(eq(tasks.id, input.taskId));
+        if (task) {
+          await db.insert(messages).values({
+            conversationId: task.conversationId,
+            role: "assistant",
+            content: "文档重构任务已完成！我已将您的文件转换为杂志级精美的 PDF。您可以点击下方按钮下载结果。",
+          });
+        }
+        saveDatabase();
+      } catch (err) {
+        console.error("[Pipeline Error]", err);
+        const db = await getDb();
+        await db.update(tasks).set({ status: "failed", progress: 0 })
+          .where(eq(tasks.id, input.taskId));
         saveDatabase();
       }
-
-      const db = await getDb();
-      await db.update(tasks).set({
-        status: "completed", progress: 100, completedAt: new Date(),
-        outputFile: `output_${input.taskId}.pdf`,
-      }).where(eq(tasks.id, input.taskId));
-
-      const [task] = await db.select().from(tasks).where(eq(tasks.id, input.taskId));
-      if (task) {
-        await db.insert(messages).values({
-          conversationId: task.conversationId,
-          role: "assistant",
-          content: "文档重构任务已完成！我已将您的文件转换为杂志级精美的 PDF。您可以点击下方按钮下载结果。",
-        });
-      }
-      saveDatabase();
     })();
 
     return { started: true };

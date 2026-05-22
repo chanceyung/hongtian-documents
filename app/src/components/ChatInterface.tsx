@@ -119,23 +119,26 @@ export default function ChatInterface() {
     setIsSending(true);
 
     const userContent = inputText.trim() || "请处理上传的文件";
-    const userMsg = await createMessage.mutateAsync({
-      conversationId: activeConversationId,
-      role: "user",
-      content: userContent,
-      attachments: attachments.length > 0 ? JSON.stringify(attachments) : undefined,
-    });
+    const currentAttachments = attachments.length > 0 ? [...attachments] : undefined;
+
     addMessage({
-      id: userMsg.id,
+      id: `local-${Date.now()}`,
       role: "user",
       content: userContent,
-      attachments: attachments.length > 0 ? attachments : undefined,
+      attachments: currentAttachments,
       createdAt: new Date(),
     });
     setInputText("");
     setAttachments([]);
 
     try {
+      await createMessage.mutateAsync({
+        conversationId: activeConversationId,
+        role: "user",
+        content: userContent,
+        attachments: currentAttachments ? JSON.stringify(currentAttachments) : undefined,
+      });
+
       const settings = await utils.settings.get.fetch();
       const outputFormat = settings?.defaultFormat || "pdf";
       const task = await createTask.mutateAsync({
@@ -159,11 +162,11 @@ export default function ChatInterface() {
       });
       await startPipeline.mutateAsync({ taskId: task.id });
     } catch (err) {
-      console.error("Task error:", err);
+      console.error("Send error:", err);
       addMessage({
-        id: String(Date.now()),
+        id: `err-${Date.now()}`,
         role: "assistant",
-        content: "抱歉，任务启动失败。请检查您的 API Key 设置是否正确，然后在设置页面配置智谱 API Key。",
+        content: "抱歉，操作失败。请稍后重试。",
         createdAt: new Date(),
       });
     }
