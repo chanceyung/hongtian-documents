@@ -90,28 +90,17 @@ export default function ChatInterface() {
     setIsUploading(true);
     try {
       for (const file of Array.from(files)) {
-        const base64 = await new Promise<string | null>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve((e.target?.result as string)?.split(",")[1] || null);
-          reader.onerror = () => resolve(null);
-          reader.readAsDataURL(file);
-        });
-        if (!base64) continue;
         const ext = file.name.split(".").pop()?.toLowerCase() || "";
-        const result = await uploadMutation.mutateAsync({
-          fileName: file.name,
-          fileType: ext,
-          fileData: base64,
-        });
+        const sizeKB = (file.size / 1024).toFixed(1);
         useStore.getState().addAttachment({
-          fileName: result.fileName,
-          fileSize: result.fileSize,
-          fileType: result.fileType,
-          fileUrl: result.url,
+          fileName: file.name,
+          fileSize: `${sizeKB} KB`,
+          fileType: ext,
+          fileUrl: "",
         });
       }
     } catch (err) {
-      console.error("Upload error:", err);
+      console.error("File select error:", err);
     }
     setIsUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
