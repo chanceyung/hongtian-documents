@@ -88,32 +88,33 @@ export default function ChatInterface() {
   const handleFileSelect = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setIsUploading(true);
-    for (const file of Array.from(files)) {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const base64 = (e.target?.result as string)?.split(",")[1];
-        if (base64) {
-          const ext = file.name.split(".").pop()?.toLowerCase() || "";
-          try {
-            const result = await uploadMutation.mutateAsync({
-              fileName: file.name,
-              fileType: ext,
-              fileData: base64,
-            });
-            useStore.getState().addAttachment({
-              fileName: result.fileName,
-              fileSize: result.fileSize,
-              fileType: result.fileType,
-              fileUrl: result.url,
-            });
-          } catch (err) {
-            console.error("Upload error:", err);
-          }
-        }
-      };
-      reader.readAsDataURL(file);
+    try {
+      for (const file of Array.from(files)) {
+        const base64 = await new Promise<string | null>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve((e.target?.result as string)?.split(",")[1] || null);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(file);
+        });
+        if (!base64) continue;
+        const ext = file.name.split(".").pop()?.toLowerCase() || "";
+        const result = await uploadMutation.mutateAsync({
+          fileName: file.name,
+          fileType: ext,
+          fileData: base64,
+        });
+        useStore.getState().addAttachment({
+          fileName: result.fileName,
+          fileSize: result.fileSize,
+          fileType: result.fileType,
+          fileUrl: result.url,
+        });
+      }
+    } catch (err) {
+      console.error("Upload error:", err);
     }
     setIsUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleDrop = (e: React.DragEvent) => {

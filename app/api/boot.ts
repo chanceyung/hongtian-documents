@@ -8,6 +8,18 @@ import { serve } from "@hono/node-server";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { dirname } from "path";
+
+const MIME: Record<string, string> = {
+  ".html": "text/html", ".js": "application/javascript", ".css": "text/css",
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json",
+  ".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font/ttf",
+  ".pdf": "application/pdf", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".md": "text/markdown",
+};
 
 const app = new Hono();
 
@@ -24,15 +36,22 @@ app.use("/api/trpc/*", async (c) => {
 app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 
 if (env.isProduction) {
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const __dirname = dirname(fileURLToPath(import.meta.url));
   const publicDir = path.join(__dirname, "public");
 
-  const MIME: Record<string, string> = {
-    ".html": "text/html", ".js": "application/javascript", ".css": "text/css",
-    ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml",
-    ".ico": "image/x-icon", ".json": "application/json",
-    ".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font/ttf",
-  };
+  const uploadDir = env.isDesktop
+    ? path.join(dirname(process.env.DATABASE_PATH || "./data/hongtian.db"), "uploads")
+    : "./uploads";
+
+  app.use("/uploads/*", async (c) => {
+    const rel = c.req.path.slice("/uploads/".length);
+    if (!rel || rel.includes("..")) return c.notFound();
+    const fp = path.join(uploadDir, rel);
+    if (!fs.existsSync(fp)) return c.notFound();
+    const ext = path.extname(fp);
+    c.header("Content-Type", MIME[ext] || "application/octet-stream");
+    return c.body(fs.readFileSync(fp));
+  });
 
   app.use("/assets/*", async (c) => {
     const rel = c.req.path.slice(1);
