@@ -2,6 +2,10 @@ import httpx
 import json
 
 from app.api.router import decrypt_key
+from app.core.retry import llm_retry
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class ZhipuClient:
@@ -40,25 +44,43 @@ class ZhipuClient:
         model = await redis.hget(f"api_keys:{self.session_id}", "zhipu_model")
         return model or "glm-4-flash"
 
+    @llm_retry
     async def chat(self, system_prompt: str, user_content: str, temperature: float = 0.1) -> str:
         api_key = await self._get_api_key()
         model = await self._get_model()
         client = await self._get_client(api_key)
 
-        resp = await client.post(
-            f"{self.BASE_URL}/chat/completions",
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
-                ],
-                "temperature": temperature,
-                "response_format": {"type": "json_object"},
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        try:
+            resp = await client.post(
+                f"{self.BASE_URL}/chat/completions",
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content},
+                    ],
+                    "temperature": temperature,
+                    "response_format": {"type": "json_object"},
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "智谱API调用失败",
+                status_code=e.response.status_code,
+                response_text=e.response.text[:500],
+                model=model,
+            )
+            raise
+        except Exception as e:
+            logger.error(
+                "智谱API调用异常",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                model=model,
+            )
+            raise
 
     async def analyze_document_structure(self, text_content: str) -> dict:
         system_prompt = """你是专业的文档分析师。基于提供的文本进行客观分析。

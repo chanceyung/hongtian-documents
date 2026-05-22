@@ -33,34 +33,30 @@ interface MagazineTask {
 }
 
 interface AppState {
-  // 步骤控制
   currentStep: number
   setCurrentStep: (step: number) => void
 
-  // API Key
   apiKeys: ApiKeyConfig
   setApiKeys: (keys: Partial<ApiKeyConfig>) => void
   sessionId: string
+  errors: string[]
+  addError: (error: string) => void
+  clearErrors: () => void
 
-  // 文件上传
   uploadedFile: File | null
   setUploadedFile: (file: File | null) => void
 
-  // 解析任务
   parseTask: ParseTask | null
   setParseTask: (task: ParseTask | null) => void
 
-  // 杂志重构任务
   magazineTask: MagazineTask | null
   setMagazineTask: (task: MagazineTask | null) => void
   fidelityReport: any
   setFidelityReport: (report: any) => void
 
-  // 排版模板
   selectedTemplate: string
   setSelectedTemplate: (id: string) => void
 
-  // 导出格式
   outputFormat: 'pdf' | 'pptx'
   setOutputFormat: (format: 'pdf' | 'pptx') => void
 }
@@ -80,6 +76,9 @@ export const useAppStore = create<AppState>((set) => ({
   setApiKeys: (keys) =>
     set((state) => ({ apiKeys: { ...state.apiKeys, ...keys } })),
   sessionId: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+  errors: [],
+  addError: (error) => set((state) => ({ errors: [...state.errors, error] })),
+  clearErrors: () => set({ errors: [] }),
 
   uploadedFile: null,
   setUploadedFile: (file) => set({ uploadedFile: file }),

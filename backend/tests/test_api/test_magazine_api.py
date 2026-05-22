@@ -115,15 +115,19 @@ async def client():
     """Create test client for FastAPI app."""
     from app.main import app
     from app.core.config import settings
+    from app.core.database import task_db
 
     # Use temp directory for outputs
     original_output_dir = settings.OUTPUT_DIR
     temp_dir = Path(tempfile.mkdtemp())
     settings.OUTPUT_DIR = str(temp_dir)
 
-    # Clear tasks dict
-    from app.api.v1 import _tasks
-    _tasks.clear()
+    # Use in-memory database for tests
+    original_db_url = settings.DATABASE_URL
+    settings.DATABASE_URL = "sqlite:///:memory:"
+
+    # Initialize database
+    await task_db.initialize()
 
     try:
         transport = ASGITransport(app=app)
@@ -131,8 +135,10 @@ async def client():
             yield ac
     finally:
         # Cleanup
+        await task_db.close()
         shutil.rmtree(temp_dir, ignore_errors=True)
         settings.OUTPUT_DIR = original_output_dir
+        settings.DATABASE_URL = original_db_url
 
 
 class TestMagazineAPIUpload:
@@ -285,9 +291,11 @@ class TestMagazineAPIUpload:
             # The mock should have been called (background task was scheduled)
             # Note: We can't directly verify the background task was called,
             # but we can verify the task was created
-            from app.api.v1 import _tasks
+            from app.core.database import task_db
             task_id = response.json()["task_id"]
-            assert task_id in _tasks
+            task = await task_db.get_task(task_id)
+            assert task is not None
+            assert task["task_id"] == task_id
 
     @pytest.mark.asyncio
     async def test_upload_invalid_signature_returns_400(self, client):
@@ -427,9 +435,10 @@ class TestMagazineAPIExport:
             task_id = upload_resp.json()["task_id"]
 
             # Update task status to completed
-            from app.api.v1 import _tasks
-            _tasks[task_id].status = "completed"
-            _tasks[task_id].output_path = f"/output/{task_id}/magazine.pdf"
+            from app.core.database import task_db
+            await task_db.update_task(
+                task_id, status="completed", output_path=f"/output/{task_id}/magazine.pdf"
+            )
 
             # Create output file
             from app.core.config import settings
@@ -458,9 +467,10 @@ class TestMagazineAPIExport:
             task_id = upload_resp.json()["task_id"]
 
             # Update task status to completed
-            from app.api.v1 import _tasks
-            _tasks[task_id].status = "completed"
-            _tasks[task_id].output_path = f"/output/{task_id}/magazine.pptx"
+            from app.core.database import task_db
+            await task_db.update_task(
+                task_id, status="completed", output_path=f"/output/{task_id}/magazine.pptx"
+            )
 
             # Create output file
             from app.core.config import settings
@@ -496,11 +506,11 @@ class TestMagazineAPIExport:
             assert "尚未" in detail or "未完成" in detail or "not complete" in detail.lower()
 
     @pytest.mark.asyncio
-    async def test_get_export_nonexistent_task_returns_400(self, client):
-        """Test that GET /export/{task_id} returns 400 for nonexistent task."""
+    async def test_get_export_nonexistent_task_returns_404(self, client):
+        """Test that GET /export/{task_id} returns 404 for nonexistent task."""
         response = await client.get("/api/magazine/export/nonexistent-task-id?format=pdf")
 
-        assert response.status_code == 400
+        assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_export_file_not_exists_returns_404(self, client):
@@ -516,9 +526,10 @@ class TestMagazineAPIExport:
             task_id = upload_resp.json()["task_id"]
 
             # Update task status to completed but don't create file
-            from app.api.v1 import _tasks
-            _tasks[task_id].status = "completed"
-            _tasks[task_id].output_path = f"/output/{task_id}/magazine.pdf"
+            from app.core.database import task_db
+            await task_db.update_task(
+                task_id, status="completed", output_path=f"/output/{task_id}/magazine.pdf"
+            )
 
             # Try to export
             response = await client.get(f"/api/magazine/export/{task_id}?format=pdf")
@@ -586,8 +597,8 @@ class TestMagazineAPIGenerate:
             task_id = upload_resp.json()["task_id"]
 
             # Mark task as completed
-            from app.api.v1 import _tasks
-            _tasks[task_id].status = "completed"
+            from app.core.database import task_db
+            await task_db.update_task(task_id, status="completed")
 
             # Try to regenerate
             generate_req = {
@@ -626,3 +637,105 @@ class TestMagazineAPIErrorHandling:
 
             # Should fail signature validation or file size check
             assert response.status_code in [400, 413]
+
+
+class TestMagazineAPISSE:
+    """Tests for GET /api/magazine/events/{task_id} SSE endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_sse_endpoint_returns_event_stream(self, client):
+        """Test that SSE endpoint returns text/event-stream."""
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
+
+            upload_resp = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
+            task_id = upload_resp.json()["task_id"]
+
+            from app.core.database import task_db
+            await task_db.update_task(task_id, status="completed", progress=1.0)
+
+            response = await client.get(f"/api/magazine/events/{task_id}")
+
+            assert response.status_code == 200
+            assert "text/event-stream" in response.headers.get("content-type", "")
+
+    @pytest.mark.asyncio
+    async def test_sse_nonexistent_task_returns_404(self, client):
+        """Test that SSE returns 404 for nonexistent task."""
+        response = await client.get("/api/magazine/events/nonexistent-task-id")
+
+        assert response.status_code == 404
+        detail = response.json()["detail"]
+        assert "不存在" in detail or "404" in detail.lower() or "not found" in detail.lower()
+
+
+class TestMagazineAPIDelete:
+    """Tests for DELETE /api/magazine/tasks/{task_id} endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_delete_task_removes_task_and_files(self, client):
+        """Test that delete removes task from database and files from disk."""
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
+
+            # Upload file
+            upload_resp = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
+            task_id = upload_resp.json()["task_id"]
+
+            # Mark task as completed
+            from app.core.database import task_db
+            await task_db.update_task(task_id, status="completed")
+
+            # Delete task
+            response = await client.delete(f"/api/magazine/tasks/{task_id}")
+
+            assert response.status_code == 200
+            assert response.json()["status"] == "deleted"
+            assert response.json()["task_id"] == task_id
+
+            # Verify task is gone from database
+            task = await task_db.get_task(task_id)
+            assert task is None
+
+            # Verify files are gone from disk
+            from app.core.config import settings
+            task_dir = Path(settings.OUTPUT_DIR) / task_id
+            assert not task_dir.exists()
+
+    @pytest.mark.asyncio
+    async def test_delete_active_task_returns_400(self, client):
+        """Test that delete returns 400 for active task."""
+        with patch('app.api.v1._run_pipeline'):
+            pptx_bytes = create_minimal_pptx()
+
+            # Upload file
+            upload_resp = await client.post(
+                "/api/magazine/upload",
+                files={"file": ("test.pptx", BytesIO(pptx_bytes), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+            )
+            task_id = upload_resp.json()["task_id"]
+
+            # Mark task as processing
+            from app.core.database import task_db
+            await task_db.update_task(task_id, status="parsing")
+
+            # Try to delete
+            response = await client.delete(f"/api/magazine/tasks/{task_id}")
+
+            assert response.status_code == 400
+            assert "正在处理中" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent_task_returns_404(self, client):
+        """Test that delete returns 404 for nonexistent task."""
+        response = await client.delete("/api/magazine/tasks/nonexistent-task-id")
+
+        assert response.status_code == 404
+        detail = response.json()["detail"]
+        assert "不存在" in detail or "404" in detail.lower() or "not found" in detail.lower()

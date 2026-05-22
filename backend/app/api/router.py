@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 import httpx
 
@@ -29,19 +29,19 @@ def _get_fernet() -> Fernet:
 
 
 class ApiKeyConfig(BaseModel):
-    session_id: str
-    zhipu_api_key: Optional[str] = None
-    zhipu_model: str = "glm-4-flash"
-    zhipu_vision_key: Optional[str] = None
-    serpapi_key: Optional[str] = None
-    flux_key: Optional[str] = None
-    flux_api_url: Optional[str] = None
+    session_id: str = Field(description="会话 ID")
+    zhipu_api_key: Optional[str] = Field(default=None, description="智谱 API Key")
+    zhipu_model: str = Field(default="glm-4-flash", description="智谱模型名称")
+    zhipu_vision_key: Optional[str] = Field(default=None, description="智谱视觉 API Key")
+    serpapi_key: Optional[str] = Field(default=None, description="SerpApi Key")
+    flux_key: Optional[str] = Field(default=None, description="Flux API Key")
+    flux_api_url: Optional[str] = Field(default=None, description="Flux API 地址")
 
 
 class ApiKeyTestResult(BaseModel):
-    valid: bool
-    message: str
-    details: Optional[str] = None
+    valid: bool = Field(description="是否有效")
+    message: str = Field(description="结果消息")
+    details: Optional[str] = Field(default=None, description="详细信息")
 
 
 def encrypt_key(key: str) -> str:
@@ -52,7 +52,7 @@ def decrypt_key(encrypted: str) -> str:
     return _get_fernet().decrypt(encrypted.encode()).decode()
 
 
-@router.post("/save")
+@router.post("/save", summary="保存 API Key", description="加密保存 API Key 到 Redis，24 小时自动过期。")
 async def save_api_keys(config: ApiKeyConfig):
     from app.core.redis import redis_client
 
@@ -83,7 +83,7 @@ async def save_api_keys(config: ApiKeyConfig):
     return {"status": "saved", "ttl": 86400}
 
 
-@router.get("/status/{session_id}")
+@router.get("/status/{session_id}", summary="查询 Key 状态", description="检查指定会话是否已配置 API Key。")
 async def get_key_status(session_id: str):
     from app.core.redis import redis_client
 
@@ -105,7 +105,7 @@ async def get_key_status(session_id: str):
     }
 
 
-@router.post("/test/zhipu")
+@router.post("/test/zhipu", summary="测试智谱 Key", description="发送测试请求验证智谱 API Key 是否有效。")
 async def test_zhipu_key(session_id: str):
     from app.core.redis import redis_client
 
@@ -140,7 +140,7 @@ async def test_zhipu_key(session_id: str):
         return ApiKeyTestResult(valid=False, message=f"连接失败: {str(e)}")
 
 
-@router.delete("/{session_id}")
+@router.delete("/{session_id}", summary="删除 Key", description="清除指定会话的所有 API Key。")
 async def delete_api_keys(session_id: str):
     from app.core.redis import redis_client
 

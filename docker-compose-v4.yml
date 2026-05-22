@@ -1,11 +1,6 @@
 version: '3.8'
 
-# V4 架构：精简为 4 个核心服务
-# 去掉了 V1 的 Dify(5容器)、Unstructured、Chroma、MinIO
-# AI 处理全部通过 GLM-5 API，无需本地模型
-
 services:
-  # ==================== 前端（Presenton Next.js） ====================
   frontend:
     build:
       context: ./frontend
@@ -18,10 +13,13 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     networks:
       - magazine-agent
 
-  # ==================== 后端 API（Presenton FastAPI + 智能体） ====================
   backend:
     build:
       context: ./backend
@@ -29,37 +27,27 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # 基础
       - APP_NAME=Magazine Document Agent
       - DEBUG=false
       - DATABASE_URL=sqlite:///./app_data/magazine.db
       - REDIS_URL=redis://redis:6379/0
-
-      # 文件存储
       - UPLOAD_DIR=/app/data/uploads
       - OUTPUT_DIR=/app/data/output
       - ASSETS_DIR=/app/data/assets
       - TEMPLATE_DIR=/app/app/templates
-
-      # GLM-5 API
       - LLM=custom
       - CUSTOM_LLM_URL=https://open.bigmodel.cn/api/paas/v4
       - CUSTOM_MODEL=glm-4-flash
       - CUSTOM_LLM_API_KEY=${GLM_API_KEY}
-
-      # 素材补充
       - IMAGE_PROVIDER=pexels
       - PEXELS_API_KEY=${PEXELS_API_KEY:-}
       - UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY:-}
       - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN:-}
-
-      # 保真校验
       - FIDELITY_THRESHOLD=0.95
       - MAX_REPAIR_ATTEMPTS=2
       - DOCILING_TIMEOUT=300
-
-      # Playwright
       - PLAYWRIGHT_HEADLESS=true
+      - CORS_ORIGINS=['http://localhost:3000','http://localhost:8000','http://localhost']
     volumes:
       - ./data/uploads:/app/data/uploads
       - ./data/output:/app/data/output
@@ -75,10 +63,13 @@ services:
       retries: 3
       start_period: 40s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     networks:
       - magazine-agent
 
-  # ==================== Redis（API Key 会话 + 任务队列） ====================
   redis:
     image: redis:7-alpine
     ports:
@@ -91,10 +82,13 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     networks:
       - magazine-agent
 
-  # ==================== Nginx 反向代理 ====================
   nginx:
     image: nginx:alpine
     ports:
@@ -105,6 +99,11 @@ services:
       - frontend
       - backend
     restart: unless-stopped
+    read_only: true
+    deploy:
+      resources:
+        limits:
+          memory: 128M
     networks:
       - magazine-agent
 

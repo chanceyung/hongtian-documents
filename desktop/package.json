@@ -1,0 +1,101 @@
+{
+  "name": "hongtian-docs",
+  "version": "4.0.0",
+  "description": "弘天文档 — 杂志级文档重构智能体",
+  "main": "dist/main/index.js",
+  "author": "弘天 AI",
+  "license": "MIT",
+  "scripts": {
+    "dev": "tsc -p tsconfig.main.json && electron .",
+    "build": "tsc -p tsconfig.main.json && electron-builder",
+    "build:win": "tsc -p tsconfig.main.json && electron-builder --win",
+    "build:mac": "tsc -p tsconfig.main.json && electron-builder --mac",
+    "build:linux": "tsc -p tsconfig.main.json && electron-builder --linux",
+    "typecheck": "tsc --noEmit -p tsconfig.main.json"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0",
+    "electron-updater": "^6.1.7",
+    "portfinder": "^1.0.32"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "typescript": "^5.5.0",
+    "@types/node": "^20.0.0"
+  },
+  "build": {
+    "appId": "com.hongtian.docs",
+    "productName": "弘天文档",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "resources/**/*",
+      "!resources/python/**/include",
+      "!resources/python/**/tcl",
+      "!resources/python/**/tk",
+      "!resources/python/**/test",
+      "!resources/python/**/__pycache__",
+      "!resources/python/**/*.pyc",
+      "!resources/python/**/*.pyo",
+      "!resources/python/**/*.a",
+      "!resources/python/**/*.lib"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/python",
+        "to": "python",
+        "filter": [
+          "**/*",
+          "!**/include/**",
+          "!**/tcl/**",
+          "!**/tk/**",
+          "!**/test/**",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!**/*.pyo",
+          "!**/*.a",
+          "!**/*.lib",
+          "!**/torch/**",
+          "!**/transformers/**",
+          "!**/scipy/**",
+          "!**/cv2/**",
+          "!**/numba/**",
+          "!**/llvmlite/**",
+          "!**/sympy/**",
+          "!**/skimage/**",
+          "!**/pandas/**"
+        ]
+      },
+      {
+        "from": "frontend/out",
+        "to": "frontend"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "resources/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "resources/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "resources/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "弘天文档"
+    }
+  }
+}

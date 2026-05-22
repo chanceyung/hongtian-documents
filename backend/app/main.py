@@ -1,32 +1,60 @@
 """杂志级文档重构智能体 - 后端主入口"""
-import logging
+import asyncio
+import webbrowser
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 
 from app.api import api_router
 from app.core.config import settings
-from app.core.redis import redis_client
+from app.core.database import task_db
+from app.core.logging import setup_logging, get_logger
+from app.core.redis import redis_client, DESKTOP_MODE
+from app.core.task_tracker import get_active_count, set_shutting_down
 from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 
-logger = logging.getLogger(__name__)
+setup_logging(debug=settings.DEBUG)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await task_db.initialize()
     await redis_client.initialize()
-    logger.info("服务启动: %s", settings.APP_NAME)
+    if DESKTOP_MODE:
+        logger.info("service.desktop_mode", storage="SQLite KV Store")
+    else:
+        logger.info("service.server_mode", storage="Redis")
+    logger.info("service.started", app_name=settings.APP_NAME)
     yield
+    set_shutting_down()
+    logger.info("service.shutting_down", active_tasks=get_active_count())
+    for _ in range(30):
+        if get_active_count() == 0:
+            break
+        await asyncio.sleep(1)
+    await task_db.close()
     await redis_client.close()
-    logger.info("服务关闭")
+    logger.info("service.stopped")
 
 
 app = FastAPI(
-    title="杂志级文档重构智能体",
-    description="将客户文档智能重构为杂志级精美的PDF/PPTX",
+    title="弘天文档 API",
+    summary="杂志级文档重构智能体",
+    description="将 PPTX/PDF/Word/Excel/Markdown 文档智能重构为杂志级精美的 PDF 或 PPTX。\n\n"
+               "## 工作流程\n"
+               "1. **上传文件** — `POST /magazine/upload`\n"
+               "2. **实时进度** — `GET /magazine/events/{task_id}` (SSE)\n"
+               "3. **查询状态** — `GET /magazine/status/{task_id}`\n"
+               "4. **下载结果** — `GET /magazine/export/{task_id}`\n"
+               "5. **保真报告** — `GET /magazine/fidelity/{task_id}`\n\n"
+               "## 前置条件\n"
+               "使用前请先在设置页面配置智谱 API Key。",
     version="4.0.0",
     lifespan=lifespan,
+    contact={"name": "弘天 AI"},
 )
 
 app.add_middleware(SecurityHeadersMiddleware)
@@ -42,6 +70,92 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api")
 
 
+# ─── 桌面模式：托管前端静态文件 ────────────────────────────────────────────
+if DESKTOP_MODE:
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.exists() and (static_dir / "index.html").exists():
+        from fastapi.staticfiles import StaticFiles as _StaticFiles
+
+        _next_dir = static_dir / "_next"
+        if _next_dir.exists():
+            app.mount("/_next", _StaticFiles(directory=_next_dir), name="static-assets")
+        for subdir in ["logo"]:
+            sub_path = static_dir / subdir
+            if sub_path.exists():
+                app.mount(f"/{subdir}", _StaticFiles(directory=sub_path), name=f"static-{subdir}")
+
+        @app.get("/{page:path}")
+        async def serve_frontend(page: str = ""):
+            """Serve Next.js static export HTML files."""
+            if not page or page == "/":
+                html_path = static_dir / "index.html"
+            else:
+                html_path = static_dir / f"{page}.html"
+                if not html_path.exists():
+                    html_path = static_dir / page / "index.html"
+                if not html_path.exists():
+                    html_path = static_dir / "index.html"
+            if html_path.exists():
+                from fastapi.responses import FileResponse
+                return FileResponse(html_path, media_type="text/html")
+            from fastapi.responses import Response
+            return Response(status_code=404)
+
+        # 自动打开浏览器
+        import threading
+        def _open_browser():
+            import time
+            time.sleep(2)
+            import webbrowser as _wb
+            _wb.open(f"http://127.0.0.1:{settings.PORT}")
+        threading.Thread(target=_open_browser, daemon=True).start()
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "4.0.0"}
+    checks = {}
+
+    if redis_client.available:
+        checks["redis"] = {"status": "ok"}
+    else:
+        checks["redis"] = {"status": "unavailable"}
+
+    try:
+        await task_db.get_task("__health_check__")
+        checks["database"] = {"status": "ok"}
+    except Exception as e:
+        checks["database"] = {"status": "error", "detail": str(e)[:100]}
+
+    output_dir = Path(settings.OUTPUT_DIR)
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        test_file = output_dir / ".health_check"
+        test_file.write_text("ok")
+        test_file.unlink()
+        checks["output_dir"] = {"status": "ok", "path": str(output_dir)}
+    except Exception as e:
+        checks["output_dir"] = {"status": "error", "detail": str(e)[:100]}
+
+    # Disk space check
+    try:
+        disk_usage = shutil.disk_usage(str(output_dir))
+        free_gb = disk_usage.free / (1024 ** 3)
+        checks["disk"] = {
+            "status": "ok" if free_gb > 1 else "warning",
+            "free_gb": round(free_gb, 2),
+            "total_gb": round(disk_usage.total / (1024 ** 3), 2),
+        }
+    except Exception as e:
+        checks["disk"] = {"status": "error", "detail": str(e)[:100]}
+
+    all_ok = all(c.get("status") in ("ok", "unavailable") for c in checks.values())
+    has_degraded = any(c.get("status") == "unavailable" for c in checks.values())
+
+    if all_ok and not has_degraded:
+        status = "ok"
+    elif all_ok:
+        status = "degraded"
+    else:
+        status = "unhealthy"
+
+    return {"status": status, "version": "4.0.0", "checks": checks}

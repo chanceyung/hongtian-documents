@@ -1,0 +1,9 @@
+node_modules/
+dist/
+release/
+build/
+resources/frontend/
+resources/python/
+*.pyc
+__pycache__/
+.env

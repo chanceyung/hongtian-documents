@@ -6,6 +6,10 @@ from pydantic import BaseModel
 from app.models.unified_document import UnifiedDocument
 from app.models.edit_actions import MagazineEditPlan, SlideEditPlan, EditAction
 from app.models.design_spec import DesignSpec, ColorScheme, Typography
+from app.core.retry import llm_retry
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class DesignSpecResult(BaseModel):
@@ -41,6 +45,7 @@ class DesignerAgent:
         edit_plan = self._validate_completeness(doc, edit_plan)
         return edit_plan
 
+    @llm_retry
     async def _determine_design_spec(self, doc: UnifiedDocument, analysis: dict) -> DesignSpec:
         result = await self.client.chat.completions.create(
             model=self._model,
@@ -62,6 +67,7 @@ class DesignerAgent:
             style=result.style,
         )
 
+    @llm_retry
     async def _map_content_to_pages(
         self, doc: UnifiedDocument, analysis: dict, spec: DesignSpec
     ) -> list[dict]:

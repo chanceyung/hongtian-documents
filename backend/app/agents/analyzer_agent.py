@@ -6,6 +6,10 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from app.models.unified_document import UnifiedDocument
+from app.core.retry import llm_retry
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class ContentGroup(BaseModel):
@@ -66,6 +70,7 @@ class AnalyzerAgent:
             "suggested_pages": patterns.get("suggested_pages", 10),
         }
 
+    @llm_retry
     async def _cluster_content(self, doc: UnifiedDocument) -> list[dict]:
         content_summary = [
             {"id": t.id, "page": t.page, "preview": t.content[:100], "level": t.level}
@@ -83,6 +88,7 @@ class AnalyzerAgent:
         )
         return [g.model_dump() for g in result.groups]
 
+    @llm_retry
     async def _extract_patterns(self, doc: UnifiedDocument) -> dict:
         text_for_analysis = "\n".join(t.content for t in doc.texts[:100])[:8000]
 
@@ -97,6 +103,7 @@ class AnalyzerAgent:
         )
         return result.model_dump()
 
+    @llm_retry
     async def _semantic_linkage(self, doc: UnifiedDocument) -> list[dict]:
         linked_text_ids = {l.text_id for l in doc.linkage}
         unlinked_texts = [t for t in doc.texts if t.id not in linked_text_ids]

@@ -1,4 +1,6 @@
 """V4 架构配置管理"""
+import warnings
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -22,6 +24,7 @@ class Settings(BaseSettings):
     # 安全
     API_KEY_ENCRYPTION_KEY: str = "change-me-in-production-32byte"
     MAX_UPLOAD_SIZE_MB: int = 100
+    CORS_ORIGINS: list = ['http://localhost:3000', 'http://localhost:8000']
 
     # GLM-5 API
     LLM: str = "custom"
@@ -47,6 +50,18 @@ class Settings(BaseSettings):
 
     # 模板
     MAGAZINE_TEMPLATES_DIR: str = "./app/templates"
+
+    @field_validator("API_KEY_ENCRYPTION_KEY")
+    @classmethod
+    def validate_encryption_key(cls, v: str) -> str:
+        if v == "change-me-in-production-32byte":
+            warnings.warn(
+                "使用默认加密密钥，请在生产环境中更换 API_KEY_ENCRYPTION_KEY",
+                stacklevel=2
+            )
+        if len(v.encode()) < 16:
+            raise ValueError("API_KEY_ENCRYPTION_KEY 长度至少 16 字节")
+        return v
 
     model_config = {
         "env_file": ".env",

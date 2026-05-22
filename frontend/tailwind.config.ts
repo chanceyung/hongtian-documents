@@ -21,6 +21,20 @@ const config: Config = {
         },
         accent: '#e94560',
       },
+      keyframes: {
+        slideIn: {
+          from: { transform: 'translateX(100%)', opacity: '0' },
+          to: { transform: 'translateX(0)', opacity: '1' },
+        },
+        slideOut: {
+          from: { transform: 'translateX(0)', opacity: '1' },
+          to: { transform: 'translateX(100%)', opacity: '0' },
+        },
+      },
+      animation: {
+        slideIn: 'slideIn 0.2s ease-out',
+        slideOut: 'slideOut 0.2s ease-in',
+      },
     },
   },
   plugins: [],

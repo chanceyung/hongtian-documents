@@ -15,6 +15,7 @@ from app.workflow.magazine_pipeline import (
 def _make_state(**overrides) -> dict:
     base = {
         "file_path": "test.pptx",
+        "task_id": "test-session",
         "session_id": "test-session",
         "output_format": "pdf",
         "template_id": "modern_tech",

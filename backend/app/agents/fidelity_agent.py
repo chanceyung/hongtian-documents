@@ -8,6 +8,10 @@ from pydantic import BaseModel
 
 from app.models.unified_document import UnifiedDocument, ContentFingerprint
 from app.models.edit_actions import MagazineEditPlan
+from app.core.retry import llm_retry
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class FidelityIssue(BaseModel):
@@ -164,6 +168,7 @@ class FidelityAgent:
 
         return score, issues
 
+    @llm_retry
     async def _check_semantic(
         self, doc: UnifiedDocument, plan: MagazineEditPlan,
     ) -> tuple[float, list[FidelityIssue]]:

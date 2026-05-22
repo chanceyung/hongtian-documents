@@ -49,4 +49,5 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "font-src 'self'; "
             "connect-src 'self'"
         )
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         return response

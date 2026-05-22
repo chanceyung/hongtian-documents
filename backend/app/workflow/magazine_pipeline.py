@@ -4,9 +4,12 @@ from typing import TypedDict
 
 from langgraph.graph import StateGraph, END
 
+from app.core.logging import get_logger
 from app.models.unified_document import UnifiedDocument
 from app.models.edit_actions import MagazineEditPlan, EditAction, SlideEditPlan
 from app.models.design_spec import DesignSpec
+
+logger = get_logger(__name__)
 
 
 class PipelineState(TypedDict, total=False):
@@ -34,6 +37,7 @@ async def _get_api_key(session_id: str) -> str:
     redis = redis_client.client
     encrypted = await redis.hget(f"api_keys:{session_id}", "zhipu_key")
     if not encrypted:
+        logger.warning("未配置智谱 API Key", session_id=session_id)
         raise ValueError("未配置智谱 API Key，请先在设置中配置")
     return decrypt_key(encrypted)
 
@@ -41,6 +45,7 @@ async def _get_api_key(session_id: str) -> str:
 async def parser_node(state: PipelineState) -> dict:
     from app.agents.parser_agent import ParserAgent
 
+    logger.info("pipeline.parse.start", session_id=state["session_id"], file_path=state["file_path"])
     agent = ParserAgent()
     doc = await agent.parse(Path(state["file_path"]), state["session_id"])
     return {"document": doc, "parse_warnings": doc.parse_warnings}
@@ -50,6 +55,7 @@ async def analyzer_node(state: PipelineState) -> dict:
     from app.agents.analyzer_agent import AnalyzerAgent
     from app.core.config import settings
 
+    logger.info("pipeline.analyze.start", session_id=state["session_id"])
     api_key = await _get_api_key(state["session_id"])
     agent = AnalyzerAgent(api_key, model=settings.CUSTOM_MODEL)
     analysis = await agent.analyze(state["document"])
@@ -60,6 +66,7 @@ async def designer_node(state: PipelineState) -> dict:
     from app.agents.designer_agent import DesignerAgent
     from app.core.config import settings
 
+    logger.info("pipeline.design.start", session_id=state["session_id"], template_id=state["template_id"])
     api_key = await _get_api_key(state["session_id"])
     agent = DesignerAgent(api_key, model=settings.CUSTOM_MODEL)
     plan = await agent.design(
@@ -97,9 +104,10 @@ async def renderer_node(state: PipelineState) -> dict:
     from app.agents.renderer_agent import RendererAgent
     from app.core.config import settings
 
+    logger.info("pipeline.render.start", session_id=state["session_id"], output_format=state["output_format"])
     agent = RendererAgent()
     template_dir = Path(settings.MAGAZINE_TEMPLATES_DIR)
-    output_dir = Path(settings.OUTPUT_DIR) / state["session_id"]
+    output_dir = Path(settings.OUTPUT_DIR) / state["task_id"]
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if state["output_format"] == "pdf":
@@ -122,6 +130,7 @@ async def fidelity_node(state: PipelineState) -> dict:
     from app.agents.fidelity_agent import FidelityAgent
     from app.core.config import settings
 
+    logger.info("pipeline.fidelity.start", session_id=state["session_id"])
     api_key = await _get_api_key(state["session_id"])
     agent = FidelityAgent(api_key, threshold=settings.FIDELITY_THRESHOLD, model=settings.CUSTOM_MODEL)
     result = await agent.verify(state["document"], state["edit_plan"])
@@ -137,6 +146,7 @@ async def repair_node(state: PipelineState) -> dict:
     plan = state["edit_plan"]
     doc = state["document"]
 
+    logger.warning("pipeline.repair", session_id=state["session_id"], repair_count=repair_count)
     for issue in state.get("fidelity_issues", []):
         if issue.get("category") != "fingerprint":
             continue
@@ -172,7 +182,7 @@ async def finalize_node(state: PipelineState) -> dict:
         "supplemented": state.get("supplemented", False),
     }
 
-    output_dir = Path(settings.OUTPUT_DIR) / state["session_id"]
+    output_dir = Path(settings.OUTPUT_DIR) / state["task_id"]
     summary_path = output_dir / "task_summary.json"
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8",

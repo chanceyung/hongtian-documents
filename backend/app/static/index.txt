@@ -1,0 +1,23 @@
+1:"$Sreact.fragment"
+2:I[9793,["870","static/chunks/870-3842cc09da0800ad.js","511","static/chunks/511-eea05b07a58973f3.js","177","static/chunks/app/layout-8d161083abac7dc2.js"],"ApiInitializer"]
+3:I[9766,[],""]
+4:I[960,["39","static/chunks/app/error-37ab32e2e0391150.js"],"default"]
+5:I[8924,[],""]
+6:I[2619,["619","static/chunks/619-ba102abea3e3d0e4.js","345","static/chunks/app/not-found-e3a935ed72a797ff.js"],""]
+7:I[4734,["870","static/chunks/870-3842cc09da0800ad.js","511","static/chunks/511-eea05b07a58973f3.js","177","static/chunks/app/layout-8d161083abac7dc2.js"],"Toaster"]
+8:I[1959,[],"ClientPageRoot"]
+9:I[3166,["870","static/chunks/870-3842cc09da0800ad.js","619","static/chunks/619-ba102abea3e3d0e4.js","37","static/chunks/37-4611319380a4c8d4.js","974","static/chunks/app/page-24d8f51510152390.js"],"default"]
+c:I[4431,[],"OutletBoundary"]
+e:I[5278,[],"AsyncMetadataOutlet"]
+10:I[4431,[],"ViewportBoundary"]
+12:I[4431,[],"MetadataBoundary"]
+13:"$Sreact.suspense"
+15:I[7150,[],""]
+:HL["/_next/static/css/97a46e6f3d41ef7b.css","style"]
+0:{"P":null,"b":"QaMKgSkhhh93bwz_jN2Jo","p":"","c":["",""],"i":false,"f":[[["",{"children":["__PAGE__",{}]},"$undefined","$undefined",true],["",["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/_next/static/css/97a46e6f3d41ef7b.css","precedence":"next","crossOrigin":"$undefined","nonce":"$undefined"}]],["$","html",null,{"lang":"zh-CN","children":["$","body",null,{"children":[["$","$L2",null,{}],["$","$L3",null,{"parallelRouterKey":"children","error":"$4","errorStyles":[],"errorScripts":[],"template":["$","$L5",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":[["$","div",null,{"className":"min-h-screen bg-gray-50 flex items-center justify-center","children":["$","div",null,{"className":"text-center","children":[["$","h1",null,{"className":"text-6xl font-bold text-brand-800 mb-4","children":"404"}],["$","p",null,{"className":"text-xl text-gray-600 mb-8","children":"页面不存在"}],["$","$L6",null,{"href":"/","className":"btn-primary","children":"返回首页"}]]}]}],[]],"forbidden":"$undefined","unauthorized":"$undefined"}],["$","$L7",null,{}]]}]}]]}],{"children":["__PAGE__",["$","$1","c",{"children":[["$","$L8",null,{"Component":"$9","searchParams":{},"params":{},"promises":["$@a","$@b"]}],null,["$","$Lc",null,{"children":["$Ld",["$","$Le",null,{"promise":"$@f"}]]}]]}],{},null,false]},null,false],["$","$1","h",{"children":[null,[["$","$L10",null,{"children":"$L11"}],null],["$","$L12",null,{"children":["$","div",null,{"hidden":true,"children":["$","$13",null,{"fallback":null,"children":"$L14"}]}]}]]}],false]],"m":"$undefined","G":["$15",[]],"s":false,"S":true}
+a:{}
+b:"$0:f:0:1:2:children:1:props:children:0:props:params"
+11:[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]
+d:null
+f:{"metadata":[["$","title","0",{"children":"弘天文档 — 杂志级文档重构智能体"}],["$","meta","1",{"name":"description","content":"将您的文档转化为杂志品质的 PDF 或 PPTX"}]],"error":null,"digest":"$undefined"}
+14:"$f:metadata"

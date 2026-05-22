@@ -11,7 +11,7 @@ pydantic-settings>=2.2.0
 
 # ---- 数据库 & 缓存 ----
 sqlalchemy>=2.0.25
-aiosqlite>=0.19.0
+aiosqlite>=0.20.0
 redis[hiredis]>=5.0.0
 
 # ---- LLM & 工作流 ----
@@ -50,3 +50,4 @@ cryptography>=42.0.0     # API Key 加密存储
 # ---- 工具 ----
 python-slugify>=8.0.4    # URL 友好文件名
 tenacity>=8.2.3          # 重试策略
+structlog>=24.0.0        # 结构化日志（JSON/Console 双模式）
