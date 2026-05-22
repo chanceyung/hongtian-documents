@@ -8,65 +8,142 @@
       'Helvetica Neue', Arial, 'Noto Sans SC', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background-color: #0a0f1a;
+    color: #e2e8f0;
   }
 
   ::selection {
-    background-color: rgba(46, 134, 171, 0.2);
-    color: #0f3460;
+    background-color: rgba(99, 102, 241, 0.3);
+    color: #fff;
   }
 
   :focus-visible {
-    outline: 2px solid #2E86AB;
+    outline: 2px solid #6366f1;
     outline-offset: 2px;
     border-radius: 4px;
   }
 
-  /* Custom scrollbar */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #c0c0c0;
-    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #a0a0a0;
+    background: rgba(255, 255, 255, 0.2);
   }
 }
 
 @layer components {
+  .glass-card {
+    @apply bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] rounded-2xl;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03),
+                0 8px 32px rgba(0, 0, 0, 0.3);
+  }
+
+  .glass-card-hover {
+    @apply glass-card transition-all duration-300;
+  }
+  .glass-card-hover:hover {
+    @apply bg-white/[0.07] border-white/[0.14];
+    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.15),
+                0 8px 40px rgba(0, 0, 0, 0.4),
+                0 0 20px rgba(99, 102, 241, 0.05);
+    transform: translateY(-2px);
+  }
+
+  .gradient-text {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-brand-400 via-accent-light to-accent;
+  }
+
+  .glow-border {
+    position: relative;
+  }
+  .glow-border::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.4), rgba(45, 134, 171, 0.2), rgba(99, 102, 241, 0.1));
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .glow-border:hover::before,
+  .glow-border.active::before {
+    opacity: 1;
+  }
+
   .btn-primary {
-    @apply px-6 py-3 bg-brand-600 text-white font-semibold rounded-lg
-      hover:bg-brand-700 transition-colors duration-200
-      disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply px-6 py-3 bg-gradient-to-r from-accent-dark to-accent text-white font-semibold rounded-xl
+      hover:from-accent hover:to-accent-light transition-all duration-300
+      shadow-lg shadow-accent/20 hover:shadow-accent/30
+      disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-none;
   }
 
   .btn-secondary {
-    @apply px-6 py-3 bg-white text-brand-600 font-semibold rounded-lg
-      border-2 border-brand-600 hover:bg-brand-50 transition-colors duration-200
-      disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply px-6 py-3 bg-white/[0.06] text-white font-semibold rounded-xl
+      border border-white/[0.12] hover:bg-white/[0.1] hover:border-white/[0.2]
+      transition-all duration-300
+      disabled:opacity-40 disabled:cursor-not-allowed;
   }
 
-  .card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-6;
+  .input-dark {
+    @apply w-full bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white
+      placeholder-white/30 focus:outline-none focus:border-accent/50 focus:bg-white/[0.07]
+      transition-all duration-200;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
   }
 
   .page-container {
     @apply max-w-6xl mx-auto px-4 py-8;
   }
+
+  .section-title {
+    @apply text-lg font-semibold text-white mb-4;
+  }
+
+  .nav-link {
+    @apply text-white/50 hover:text-white text-sm font-medium transition-colors duration-200;
+  }
+  .nav-link.active {
+    @apply text-white;
+  }
 }
 
 @layer utilities {
   .animate-fade-in {
-    animation: fadeIn 0.3s ease-in-out;
+    animation: fadeIn 0.4s ease-out;
+  }
+  .animate-fade-in-up {
+    animation: fadeInUp 0.5s ease-out;
   }
 
   @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(8px); }
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
+  }
+
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+
+  .bg-radial-glow {
+    background: radial-gradient(ellipse 60% 50% at 50% 0%, rgba(99, 102, 241, 0.08) 0%, transparent 70%);
   }
 }

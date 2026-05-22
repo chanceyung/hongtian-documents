@@ -8,7 +8,7 @@ export interface Attachment {
 }
 
 export interface AgentStateUI {
-  id: number;
+  id: string;
   agentType: string;
   name: string;
   color: string;
@@ -19,7 +19,7 @@ export interface AgentStateUI {
 }
 
 export interface MessageUI {
-  id: number;
+  id: string;
   role: "user" | "assistant";
   content: string;
   attachments?: Attachment[];
@@ -27,14 +27,14 @@ export interface MessageUI {
 }
 
 export interface ConversationUI {
-  id: number;
+  id: string;
   title: string;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export interface TaskUI {
-  id: number;
+  id: string;
   status: "pending" | "running" | "completed" | "failed";
   progress: number;
   outputFormat: "pdf" | "pptx";
@@ -45,9 +45,9 @@ export interface TaskUI {
 interface AppState {
   // Conversations
   conversations: ConversationUI[];
-  activeConversationId: number | null;
+  activeConversationId: string | null;
   setConversations: (convs: ConversationUI[]) => void;
-  setActiveConversation: (id: number | null) => void;
+  setActiveConversation: (id: string | null) => void;
   addConversation: (conv: ConversationUI) => void;
 
   // Messages

@@ -30,7 +30,7 @@ export default function AgentPanel() {
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
 
   const { data: agentStatesData } = trpc.task.getAgentStates.useQuery(
-    { taskId: activeTask?.id || 0 },
+    { taskId: activeTask?.id || "" },
     { enabled: !!activeTask?.id && activeTask.status === "running", refetchInterval: 500 }
   );
 
@@ -99,7 +99,7 @@ export default function AgentPanel() {
       animate={{ width: 316, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
       transition={{ duration: 0.25, ease: "easeOut" }}
-      className="h-full bg-[#0a0f1c]/60 backdrop-blur-md border-l border-white/[0.05] flex flex-col shrink-0 overflow-hidden"
+      className="h-full bg-[#0a0f1c]/60 backdrop-blur-md flex flex-col shrink-0 overflow-hidden"
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.05]">

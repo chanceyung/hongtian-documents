@@ -1,16 +1,14 @@
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
-import { getDb } from "./queries/connection";
+import { getDb, saveDatabase } from "./queries/connection";
 import { userSettings } from "@db/schema";
 import { eq } from "drizzle-orm";
 
 export const settingsRouter = createRouter({
   get: publicQuery.query(async ({ ctx }) => {
-    const db = getDb();
-    const userId = ctx.user?.id;
-    if (!userId) return null;
+    const db = await getDb();
     const [settings] = await db.select().from(userSettings)
-      .where(eq(userSettings.userId, userId));
+      .where(eq(userSettings.userId, ctx.user.id));
     return settings || null;
   }),
 
@@ -20,30 +18,32 @@ export const settingsRouter = createRouter({
     defaultFormat: z.enum(["pdf", "pptx"]).default("pdf"),
     defaultTemplate: z.string().default("modern_tech"),
   })).mutation(async ({ input, ctx }) => {
-    const db = getDb();
-    const userId = ctx.user?.id;
-    if (!userId) throw new Error("未登录");
+    const db = await getDb();
     const [existing] = await db.select().from(userSettings)
-      .where(eq(userSettings.userId, userId));
+      .where(eq(userSettings.userId, ctx.user.id));
     if (existing) {
       await db.update(userSettings).set({
         zhipuApiKey: input.zhipuApiKey,
         zhipuModel: input.zhipuModel,
         defaultFormat: input.defaultFormat,
         defaultTemplate: input.defaultTemplate,
+        updatedAt: new Date(),
       }).where(eq(userSettings.id, existing.id));
       const [updated] = await db.select().from(userSettings).where(eq(userSettings.id, existing.id));
+      saveDatabase();
       return updated;
     } else {
-      const result = await db.insert(userSettings).values({
-        userId,
+      await db.insert(userSettings).values({
+        userId: ctx.user.id,
         zhipuApiKey: input.zhipuApiKey,
         zhipuModel: input.zhipuModel,
         defaultFormat: input.defaultFormat,
         defaultTemplate: input.defaultTemplate,
-      }).$returningId();
-      const [settings] = await db.select().from(userSettings).where(eq(userSettings.id, result[0].id));
-      return settings;
+      });
+      const rows = await db.select().from(userSettings)
+        .where(eq(userSettings.userId, ctx.user.id)).limit(1);
+      saveDatabase();
+      return rows[0];
     }
   }),
 

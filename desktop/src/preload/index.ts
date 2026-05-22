@@ -4,20 +4,16 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // 获取后端端口
   getBackendPort: () => ipcRenderer.invoke('get-backend-port'),
-
-  // 平台信息
   platform: process.platform,
-
-  // 文件对话框
   openFile: (filters: any) => ipcRenderer.invoke('dialog:openFile', filters),
-
-  // 版本
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  minimize: () => ipcRenderer.invoke('window:minimize'),
+  maximize: () => ipcRenderer.invoke('window:maximize'),
+  close: () => ipcRenderer.invoke('window:close'),
 })
 
 // 菜单事件转发
 ipcRenderer.on('menu:open-file', () => {
-  window.dispatchEvent(new CustomEvent('menu:open-file'))
+  globalThis.dispatchEvent(new CustomEvent('menu:open-file'))
 })

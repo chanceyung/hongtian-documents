@@ -24,6 +24,7 @@ def open_browser(port):
 def main():
     import uvicorn
     from app.core.config import settings
+    from app.main import app
     port = int(os.environ.get("PORT", "8000"))
     print("=" * 50)
     print("  弘天文档 v4.0 — 杂志级文档重构智能体")
@@ -33,10 +34,9 @@ def main():
     print("=" * 50)
     threading.Thread(target=open_browser, args=(port,), daemon=True).start()
     uvicorn.run(
-        "app.main:app",
+        app,
         host="127.0.0.1",
         port=port,
-        workers=1,
         log_level="info",
         access_log=False,
     )

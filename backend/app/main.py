@@ -1,5 +1,6 @@
 """杂志级文档重构智能体 - 后端主入口"""
 import asyncio
+import os
 import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -72,7 +73,12 @@ app.include_router(api_router, prefix="/api")
 
 # ─── 桌面模式：托管前端静态文件 ────────────────────────────────────────────
 if DESKTOP_MODE:
-    static_dir = Path(__file__).parent / "static"
+    import sys
+    if getattr(sys, 'frozen', False):
+        # PyInstaller 打包模式：静态文件在 _internal/app/static/
+        static_dir = Path(sys._MEIPASS) / "app" / "static"
+    else:
+        static_dir = Path(__file__).parent / "static"
     if static_dir.exists() and (static_dir / "index.html").exists():
         from fastapi.staticfiles import StaticFiles as _StaticFiles
 
@@ -159,3 +165,22 @@ async def health():
         status = "unhealthy"
 
     return {"status": status, "version": "4.0.0", "checks": checks}
+
+
+# ─── 桌面打包模式入口 ────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", "8000"))
+    print("=" * 50)
+    print("  弘天文档 v4.0 — 杂志级文档重构智能体")
+    print("=" * 50)
+    print(f"  后端地址: http://127.0.0.1:{port}")
+    print(f"  按 Ctrl+C 退出")
+    print("=" * 50)
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=port,
+        log_level="info",
+        access_log=False,
+    )

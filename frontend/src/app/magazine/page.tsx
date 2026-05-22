@@ -10,10 +10,10 @@ import { toast } from '@/components/ui/Toaster'
 type Template = 'modern_tech' | 'elegant_minimal' | 'business_professional'
 type ExportFormat = 'pdf' | 'pptx'
 
-const templates: { id: Template; name: string; desc: string; colors: string }[] = [
-  { id: 'modern_tech', name: '现代科技', desc: '深色背景 + 科技蓝配色', colors: 'from-[#1a1a2e] to-[#0f3460]' },
-  { id: 'elegant_minimal', name: '优雅极简', desc: '浅色背景 + 极简设计', colors: 'from-[#f5f5f5] to-[#e0e0e0]' },
-  { id: 'business_professional', name: '商务专业', desc: '深蓝背景 + 金色点缀', colors: 'from-[#0d1b2a] to-[#1b3a4b]' },
+const templates: { id: Template; name: string; desc: string; colors: string; icon: string }[] = [
+  { id: 'modern_tech', name: '现代科技', desc: '深色背景 + 科技蓝配色', colors: 'from-[#1a1a2e] to-[#0f3460]', icon: '01' },
+  { id: 'elegant_minimal', name: '优雅极简', desc: '浅色背景 + 极简设计', colors: 'from-[#f8f9fa] to-[#dee2e6]', icon: '02' },
+  { id: 'business_professional', name: '商务专业', desc: '深蓝背景 + 金色点缀', colors: 'from-[#0d1b2a] to-[#1b3a4b]', icon: '03' },
 ]
 
 export default function MagazinePage() {
@@ -105,7 +105,6 @@ export default function MagazinePage() {
         setExportUrl(null)
       }
 
-      // 先检查是否已完成
       try {
         const existingResp = await magazineApi.status(magazineTask.id)
         if (existingResp.data?.status === 'completed') {
@@ -115,9 +114,8 @@ export default function MagazinePage() {
           setTaskId(magazineTask.id)
           return
         }
-      } catch { /* task may not exist yet */ }
+      } catch { }
 
-      // 调用 generate 端点启动 pipeline
       await magazineApi.generate(magazineTask.id, {
         outputFormat: format,
         templateId: selectedTpl,
@@ -155,145 +153,134 @@ export default function MagazinePage() {
   if (!magazineTask) return null
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 text-brand-600 hover:text-brand-700">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            返回首页
-          </Link>
-          <h1 className="text-lg font-semibold text-gray-900">生成杂志文档</h1>
-          <div className="flex gap-4">
-            <Link href="/history" className="flex items-center gap-2 text-brand-600 hover:text-brand-700 text-sm">
-              历史记录
-            </Link>
-            <Link href="/settings" className="flex items-center gap-2 text-brand-600 hover:text-brand-700 text-sm">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              设置
-            </Link>
-          </div>
+    <div className="page-container">
+      <div className="glass-card p-5 mb-6 flex items-center gap-4 text-sm">
+        <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent-light">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+          </svg>
         </div>
-      </header>
-
-      <main className="max-w-5xl mx-auto px-4 py-8">
-        <div className="card mb-6">
-          <div className="flex items-center gap-4 text-sm text-gray-600">
-            <span>文件: <strong className="text-gray-900">{magazineTask.fileName}</strong></span>
-            <span className="text-gray-300">|</span>
-            <span>大小: {magazineTask.fileSize}</span>
-          </div>
+        <div>
+          <span className="text-white font-medium">{magazineTask.fileName}</span>
+          <span className="text-white/30 ml-3">{magazineTask.fileSize}</span>
         </div>
+      </div>
 
-        {status === 'idle' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="card">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">选择模板</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {templates.map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    onClick={() => setSelectedTpl(tpl.id)}
-                    className={`p-4 rounded-xl border-2 transition-all text-left ${
-                      selectedTpl === tpl.id
-                        ? 'border-brand-500 bg-brand-50 shadow-sm'
-                        : 'border-gray-200 hover:border-brand-300'
-                    }`}
-                  >
-                    <div className={`w-full h-24 rounded-lg bg-gradient-to-br ${tpl.colors} mb-3`} />
-                    <h3 className="font-semibold text-gray-900">{tpl.name}</h3>
-                    <p className="text-sm text-gray-500 mt-1">{tpl.desc}</p>
-                  </button>
-                ))}
-              </div>
+      {status === 'idle' && (
+        <div className="space-y-6 animate-fade-in-up">
+          <div className="glass-card p-6">
+            <h2 className="section-title">选择模板</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {templates.map((tpl) => (
+                <button
+                  key={tpl.id}
+                  onClick={() => setSelectedTpl(tpl.id)}
+                  className={`p-4 rounded-xl border transition-all duration-300 text-left group ${
+                    selectedTpl === tpl.id
+                      ? 'border-accent/50 bg-accent/[0.06]'
+                      : 'border-white/[0.06] hover:border-white/[0.12] bg-white/[0.02]'
+                  }`}
+                >
+                  <div className={`w-full h-24 rounded-lg bg-gradient-to-br ${tpl.colors} mb-3 relative overflow-hidden`}>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-white/30 text-2xl font-bold">{tpl.icon}</span>
+                    </div>
+                  </div>
+                  <h3 className="text-white font-medium">{tpl.name}</h3>
+                  <p className="text-sm text-white/35 mt-1">{tpl.desc}</p>
+                </button>
+              ))}
             </div>
-
-            <div className="card">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">输出格式</h2>
-              <div className="grid grid-cols-2 gap-4">
-                {(['pdf', 'pptx'] as const).map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setFormat(f)}
-                    className={`p-4 rounded-xl border-2 transition-all ${
-                      format === f
-                        ? 'border-brand-500 bg-brand-50'
-                        : 'border-gray-200 hover:border-brand-300'
-                    }`}
-                  >
-                    <div className="text-xl font-bold text-brand-600 uppercase">{f}</div>
-                    <p className="text-sm text-gray-500 mt-1">
-                      {f === 'pdf' ? '适合打印和分享' : '适合演示和编辑'}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <button onClick={handleGenerate} className="btn-primary w-full py-4 text-lg">
-              开始生成
-            </button>
           </div>
-        )}
 
-        {status === 'processing' && (
-          <div className="card animate-fade-in">
-            <div className="flex flex-col items-center py-8">
-              <div className="w-16 h-16 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mb-6" />
-              <p className="text-lg font-semibold text-gray-900 mb-2">{statusMsg}</p>
-              <div className="w-full max-w-md bg-gray-200 rounded-full h-3 mt-4">
+          <div className="glass-card p-6">
+            <h2 className="section-title">输出格式</h2>
+            <div className="grid grid-cols-2 gap-4">
+              {(['pdf', 'pptx'] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFormat(f)}
+                  className={`p-4 rounded-xl border transition-all duration-300 ${
+                    format === f
+                      ? 'border-accent/50 bg-accent/[0.06]'
+                      : 'border-white/[0.06] hover:border-white/[0.12] bg-white/[0.02]'
+                  }`}
+                >
+                  <div className="text-xl font-bold text-white/70 uppercase">{f}</div>
+                  <p className="text-sm text-white/30 mt-1">
+                    {f === 'pdf' ? '适合打印和分享' : '适合演示和编辑'}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button onClick={handleGenerate} className="btn-primary w-full py-4 text-base">
+            开始生成
+          </button>
+        </div>
+      )}
+
+      {status === 'processing' && (
+        <div className="glass-card p-10 animate-fade-in">
+          <div className="flex flex-col items-center">
+            <div className="relative mb-6">
+              <div className="w-16 h-16 border-[3px] border-accent/20 border-t-accent rounded-full animate-spin" />
+              <div className="absolute inset-0 w-16 h-16 border-[3px] border-transparent border-b-accent-light/30 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }} />
+            </div>
+            <p className="text-lg font-semibold text-white mb-2">{statusMsg}</p>
+            <div className="w-full max-w-sm mt-4">
+              <div className="h-2 rounded-full bg-white/[0.06] overflow-hidden">
                 <div
-                  className="bg-brand-500 h-3 rounded-full transition-all duration-500"
+                  className="h-full rounded-full bg-gradient-to-r from-accent-dark via-accent to-accent-light transition-all duration-700 relative"
                   style={{ width: `${progress}%` }}
-                />
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" style={{ backgroundSize: '200% 100%' }} />
+                </div>
               </div>
-              <p className="text-sm text-gray-500 mt-2">{progress}%</p>
+              <p className="text-sm text-white/30 mt-2 text-center">{progress}%</p>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {status === 'completed' && (
-          <div className="space-y-4 animate-fade-in">
-            <div className="card text-center py-8">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">生成完成</h2>
-              <p className="text-gray-500">您的杂志文档已准备好</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <button onClick={handleDownload} className="btn-primary w-full py-4">
-                下载文档
-              </button>
-              <Link href={`/magazine/fidelity?task_id=${taskId}`} className="btn-secondary w-full py-4 text-center">
-                查看保真报告
-              </Link>
-            </div>
-          </div>
-        )}
-
-        {status === 'failed' && (
-          <div className="card text-center py-8 animate-fade-in">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+      {status === 'completed' && (
+        <div className="space-y-4 animate-fade-in-up">
+          <div className="glass-card p-10 text-center">
+            <div className="w-16 h-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">生成失败</h2>
-            <p className="text-gray-500 mb-6">{statusMsg}</p>
-            <button onClick={handleGenerate} className="btn-primary">
-              重试
-            </button>
+            <h2 className="text-xl font-bold text-white mb-2">生成完成</h2>
+            <p className="text-white/40">您的杂志文档已准备好</p>
           </div>
-        )}
-      </main>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <button onClick={handleDownload} className="btn-primary w-full py-4">
+              下载文档
+            </button>
+            <Link href={`/magazine/fidelity?task_id=${taskId}`} className="btn-secondary w-full py-4 text-center block">
+              查看保真报告
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {status === 'failed' && (
+        <div className="glass-card p-10 text-center animate-fade-in">
+          <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-white mb-2">生成失败</h2>
+          <p className="text-white/40 mb-6">{statusMsg}</p>
+          <button onClick={handleGenerate} className="btn-primary">
+            重试
+          </button>
+        </div>
+      )}
     </div>
   )
 }

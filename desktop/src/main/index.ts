@@ -1,179 +1,151 @@
 /**
  * 弘天文档 — Electron 主进程
- *
- * 职责：
- * 1. 启动/停止内嵌 Python 后端
- * 2. 管理应用窗口
- * 3. 处理系统托盘和菜单
  */
-import { app, BrowserWindow, Menu, shell, dialog } from 'electron'
+import { app, BrowserWindow, Menu, shell, dialog, ipcMain } from 'electron'
 import { join, resolve } from 'path'
 import { ChildProcess, spawn } from 'child_process'
 import { existsSync, mkdirSync } from 'fs'
 import { platform } from 'os'
-import { findFreePort } from './port-utils'
+import * as net from 'net'
 
-// ─── Globals ────────────────────────────────────────────────────────────────
 let mainWindow: BrowserWindow | null = null
-let backendProcess: ChildProcess | null = null
-let backendPort = 8000
+let serverProcess: ChildProcess | null = null
+let serverPort = 3000
 let isQuitting = false
 
-// ─── Paths ──────────────────────────────────────────────────────────────────
+function findFreePort(startPort: number): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer()
+    server.listen(startPort, '127.0.0.1', () => {
+      const addr = server.address()
+      server.close(() => {
+        if (addr && typeof addr === 'object') resolve(addr.port)
+        else resolve(startPort)
+      })
+    })
+    server.on('error', () => {
+      if (startPort < 65535) resolve(findFreePort(startPort + 1))
+      else reject(new Error('No available port'))
+    })
+  })
+}
+
 function getResourcesPath(): string {
-  // 开发模式: desktop/resources
-  // 生产模式: process.resourcesPath
-  if (app.isPackaged) {
-    return process.resourcesPath
-  }
-  return resolve(__dirname, '..', 'resources')
-}
-
-function getPythonExe(): string {
-  const resPath = getResourcesPath()
-  const isWin = platform() === 'win32'
-
-  if (app.isPackaged) {
-    return join(resPath, 'python', isWin ? 'python.exe' : 'bin/python')
-  }
-
-  // 开发模式：使用系统 Python 或指定路径
-  const devPython = process.env.HONGTIAN_PYTHON || (isWin ? 'python' : 'python3')
-  return devPython
-}
-
-function getBackendDir(): string {
-  if (app.isPackaged) {
-    return join(getResourcesPath(), 'python', 'app')
-  }
-  // 开发模式：直接引用 backend/app
-  return resolve(__dirname, '..', '..', 'backend')
+  if (app.isPackaged) return join(process.resourcesPath, 'app')
+  return resolve(__dirname, '..', '..')
 }
 
 function getUserDataDir(): string {
   const dir = join(app.getPath('userData'), 'data')
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true })
-  }
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   return dir
 }
 
-// ─── Backend Management ─────────────────────────────────────────────────────
-async function startBackend(): Promise<void> {
-  backendPort = await findFreePort(8000)
+function registerIpcHandlers(): void {
+  ipcMain.handle('get-backend-port', () => serverPort)
+  ipcMain.handle('app:getVersion', () => app.getVersion())
+  ipcMain.handle('dialog:openFile', async (_event, filters) => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      properties: ['openFile'],
+      filters: filters || [],
+    })
+    return result.filePaths[0] || null
+  })
+  ipcMain.handle('window:minimize', () => mainWindow?.minimize())
+  ipcMain.handle('window:maximize', () => {
+    if (mainWindow?.isMaximized()) mainWindow.unmaximize()
+    else mainWindow?.maximize()
+  })
+  ipcMain.handle('window:close', () => mainWindow?.close())
+}
 
-  const pythonExe = getPythonExe()
-  const backendDir = getBackendDir()
+async function startServer(): Promise<void> {
+  serverPort = await findFreePort(3000)
+
+  const resPath = getResourcesPath()
   const dataDir = getUserDataDir()
+  const bootScript = join(resPath, 'resources', 'app-server', 'boot.mjs')
 
-  const env = {
-    ...process.env,
-    DESKTOP_MODE: 'true',
-    PYTHONUNBUFFERED: '1',
-    PYTHONIOENCODING: 'utf-8',
-    PORT: String(backendPort),
-    DATABASE_URL: `sqlite:///${join(dataDir, 'magazine.db')}`,
-    OUTPUT_DIR: join(dataDir, 'output'),
-    UPLOAD_DIR: join(dataDir, 'uploads'),
-    ASSETS_DIR: join(dataDir, 'assets'),
-    APP_DATA_DIR: join(dataDir, 'app_data'),
-    CORS_ORIGINS: `["http://localhost:${backendPort}"]`,
-    PLAYWRIGHT_BROWSERS_PATH: app.isPackaged
-      ? join(getResourcesPath(), 'python', 'playwright-browsers')
-      : undefined,
+  if (!existsSync(bootScript)) {
+    throw new Error(`启动脚本不存在: ${bootScript}`)
   }
 
-  // 清理未定义的 env 字段
-  Object.keys(env).forEach(k => env[k] === undefined && delete env[k])
+  const env: Record<string, string | undefined> = {
+    ...process.env as Record<string, string>,
+    NODE_ENV: 'production',
+    DESKTOP_MODE: 'true',
+    PORT: String(serverPort),
+    DATABASE_PATH: join(dataDir, 'hongtian.db'),
+  }
+  Object.keys(env).forEach(k => { if (env[k] === undefined) delete env[k] })
 
-  console.log(`[Main] Starting backend on port ${backendPort}`)
-  console.log(`[Main] Python: ${pythonExe}`)
-  console.log(`[Main] Backend dir: ${backendDir}`)
+  console.log(`[Main] Starting server on port ${serverPort}`)
+  console.log(`[Main] Boot: ${bootScript}`)
+  console.log(`[Main] DB: ${env.DATABASE_PATH}`)
 
-  const args = [
-    '-m', 'uvicorn',
-    'app.main:app',
-    '--host', '127.0.0.1',
-    '--port', String(backendPort),
-    '--workers', '1',
-    '--log-level', 'info',
-    '--no-access-log',
-  ]
-
-  backendProcess = spawn(pythonExe, args, {
-    cwd: backendDir,
+  // 用系统 Node 而不是 Electron 的 Node（Electron 不支持 ESM）
+  const nodeExe = platform() === 'win32' ? 'node' : 'node'
+  serverProcess = spawn(nodeExe, [bootScript], {
+    cwd: join(resPath, 'resources', 'app-server'),
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
 
-  backendProcess.stdout?.on('data', (data: Buffer) => {
-    console.log(`[Backend] ${data.toString().trim()}`)
+  serverProcess.stdout?.on('data', (data: Buffer) => {
+    console.log(`[Server] ${data.toString().trim()}`)
   })
 
-  backendProcess.stderr?.on('data', (data: Buffer) => {
-    console.error(`[Backend] ${data.toString().trim()}`)
-  })
-
-  backendProcess.on('exit', (code) => {
-    if (!isQuitting) {
-      console.error(`[Backend] exited with code ${code}`)
+  serverProcess.stderr?.on('data', (data: Buffer) => {
+    const msg = data.toString().trim()
+    if (msg.includes('Error') || msg.includes('ECONNREFUSED')) {
+      console.error(`[Server] ${msg}`)
+    } else {
+      console.log(`[Server] ${msg}`)
     }
   })
 
-  // 等待后端就绪
-  await waitForBackend(backendPort, 30_000)
+  serverProcess.on('error', (err) => {
+    console.error(`[Main] Failed to start: ${err.message}`)
+    dialog.showErrorBox('启动失败', `无法启动后端服务：${err.message}`)
+  })
+
+  serverProcess.on('exit', (code) => {
+    if (!isQuitting) console.error(`[Server] exited with code ${code}`)
+  })
+
+  await waitForServer(serverPort, 15_000)
 }
 
-async function stopBackend(): Promise<void> {
-  if (!backendProcess) return
-
+async function stopServer(): Promise<void> {
+  if (!serverProcess || serverProcess.killed) return
   isQuitting = true
-  console.log('[Main] Stopping backend...')
-
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
-      console.log('[Main] Force killing backend')
-      backendProcess?.kill('SIGKILL')
+      serverProcess?.kill('SIGKILL')
       resolve()
     }, 5000)
-
-    backendProcess?.on('exit', () => {
-      clearTimeout(timeout)
-      resolve()
-    })
-
-    backendProcess?.kill('SIGTERM')
+    serverProcess?.on('exit', () => { clearTimeout(timeout); resolve() })
+    serverProcess?.kill('SIGTERM')
   })
 }
 
-async function waitForBackend(port: number, timeout: number): Promise<void> {
+async function waitForServer(port: number, timeout: number): Promise<void> {
   const start = Date.now()
-  const http = await import('http')
-
   return new Promise((resolve, reject) => {
     function check() {
-      if (Date.now() - start > timeout) {
-        reject(new Error('Backend startup timed out'))
-        return
-      }
-
-      const req = http.get(`http://127.0.0.1:${port}/health`, (res) => {
-        if (res.statusCode === 200) {
-          console.log('[Main] Backend ready')
-          resolve()
-        } else {
-          setTimeout(check, 500)
-        }
+      if (Date.now() - start > timeout) { reject(new Error('Server startup timed out')); return }
+      const socket = net.createConnection({ port, host: '127.0.0.1' }, () => {
+        socket.destroy()
+        console.log('[Main] Server ready')
+        resolve()
       })
-
-      req.on('error', () => setTimeout(check, 500))
-      req.end()
+      socket.on('error', () => setTimeout(check, 500))
+      socket.setTimeout(1000, () => { socket.destroy(); setTimeout(check, 500) })
     }
     check()
   })
 }
 
-// ─── Window Management ──────────────────────────────────────────────────────
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -182,129 +154,66 @@ function createWindow(): void {
     minHeight: 680,
     title: '弘天文档',
     show: false,
+    frame: false,
     webPreferences: {
-      preload: join(__dirname, 'preload.js'),
+      preload: join(__dirname, '..', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
     },
   })
 
-  // 加载前端页面
-  if (app.isPackaged) {
-    mainWindow.loadFile(join(getResourcesPath(), 'frontend', 'index.html'))
-  } else {
-    // 开发模式：加载前端 dev server 或静态文件
-    const frontendUrl = process.env.FRONTEND_URL || `http://localhost:3000`
-    mainWindow.loadURL(frontendUrl)
-  }
-
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show()
-  })
-
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
-
-  // 外部链接在浏览器打开
+  mainWindow.loadURL(`http://127.0.0.1:${serverPort}`)
+  mainWindow.once('ready-to-show', () => mainWindow?.show())
+  mainWindow.on('closed', () => { mainWindow = null })
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
   })
 }
 
-// ─── Application Menu ───────────────────────────────────────────────────────
 function createMenu(): void {
   const template: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: '文件',
-      submenu: [
-        { label: '打开文件...', accelerator: 'CmdOrCtrl+O', click: () => mainWindow?.webContents.send('menu:open-file') },
-        { type: 'separator' },
-        { label: '退出', accelerator: 'CmdOrCtrl+Q', click: () => app.quit() },
-      ],
-    },
-    {
-      label: '编辑',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-      ],
-    },
-    {
-      label: '视图',
-      submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-      ],
-    },
-    {
-      label: '帮助',
-      submenu: [
-        {
-          label: '关于弘天文档',
-          click: () => {
-            dialog.showMessageBoxSync(mainWindow!, {
-              type: 'info',
-              title: '关于弘天文档',
-              message: `弘天文档 v${app.getVersion()}`,
-              detail: '杂志级文档重构智能体\n将客户文档转化为杂志品质的 PDF / PPTX',
-            })
-          },
-        },
-      ],
-    },
+    { label: '文件', submenu: [
+      { label: '打开文件...', accelerator: 'CmdOrCtrl+O', click: () => mainWindow?.webContents.send('menu:open-file') },
+      { type: 'separator' },
+      { label: '退出', accelerator: 'CmdOrCtrl+Q', role: 'quit' },
+    ]},
+    { label: '编辑', role: 'editMenu' },
+    { label: '视图', submenu: [
+      { role: 'reload' }, { role: 'forceReload' }, { role: 'toggleDevTools' },
+      { type: 'separator' },
+      { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
+      { type: 'separator' },
+      { role: 'togglefullscreen' },
+    ]},
+    { label: '帮助', submenu: [{
+      label: '关于弘天文档',
+      click: () => { dialog.showMessageBoxSync(mainWindow!, {
+        type: 'info', title: '关于弘天文档',
+        message: `弘天文档 v${app.getVersion()}`,
+        detail: '杂志级文档重构智能体\n将客户文档转化为杂志品质的 PDF / PPTX',
+      })},
+    }]},
   ]
-
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-// ─── Preload ────────────────────────────────────────────────────────────────
-// preload.js 需要单独编译，这里仅创建入口
-
-// ─── App Lifecycle ──────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   try {
-    createMenu()
-    await startBackend()
+    registerIpcHandlers()
+    Menu.setApplicationMenu(null)
+    await startServer()
     createWindow()
   } catch (err) {
-    console.error('[Main] Failed to start:', err)
-    dialog.showErrorBox(
-      '启动失败',
-      `后端服务启动失败：${err instanceof Error ? err.message : String(err)}`,
-    )
+    console.error('[Main] Failed:', err)
+    dialog.showErrorBox('启动失败', `应用启动失败：${err instanceof Error ? err.message : String(err)}`)
     app.quit()
   }
 })
 
-app.on('window-all-closed', () => {
-  app.quit()
-})
-
+app.on('window-all-closed', () => { if (platform() !== 'darwin') app.quit() })
 app.on('before-quit', async (e) => {
-  if (backendProcess && !isQuitting) {
-    e.preventDefault()
-    await stopBackend()
-    app.quit()
-  }
+  if (serverProcess && !isQuitting) { e.preventDefault(); await stopServer(); app.quit() }
 })
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
-  }
-})
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })

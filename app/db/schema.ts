@@ -1,54 +1,56 @@
-import {
-  mysqlTable,
-  mysqlEnum,
-  serial,
-  varchar,
-  text,
-  timestamp,
-  bigint,
-  int,
-} from "drizzle-orm/mysql-core";
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { nanoid } from "nanoid";
 
-export const users = mysqlTable("users", {
-  id: serial("id").primaryKey(),
-  unionId: varchar("unionId", { length: 255 }).notNull().unique(),
-  name: varchar("name", { length: 255 }),
-  email: varchar("email", { length: 320 }),
+function nid() {
+  return text("id")
+    .primaryKey()
+    .$defaultFn(() => nanoid(16));
+}
+
+export const users = sqliteTable("users", {
+  id: nid(),
+  name: text("name").notNull().default("桌面用户"),
+  email: text("email"),
   avatar: text("avatar"),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt")
-    .defaultNow()
+  role: text("role", { enum: ["user", "admin"] }).notNull().default("admin"),
+  createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
-    .$onUpdate(() => new Date()),
-  lastSignInAt: timestamp("lastSignInAt").defaultNow().notNull(),
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// 对话表
-export const conversations = mysqlTable("conversations", {
-  id: serial("id").primaryKey(),
-  userId: bigint("userId", { mode: "number", unsigned: true }).notNull(),
-  title: varchar("title", { length: 255 }).notNull().default("新对话"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt")
-    .defaultNow()
+export const conversations = sqliteTable("conversations", {
+  id: nid(),
+  userId: text("user_id")
     .notNull()
-    .$onUpdate(() => new Date()),
+    .references(() => users.id),
+  title: text("title").notNull().default("新对话"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
 export type Conversation = typeof conversations.$inferSelect;
 
-// 消息表
-export const messages = mysqlTable("messages", {
-  id: serial("id").primaryKey(),
-  conversationId: bigint("conversationId", { mode: "number", unsigned: true }).notNull(),
-  role: mysqlEnum("role", ["user", "assistant"]).notNull(),
+export const messages = sqliteTable("messages", {
+  id: nid(),
+  conversationId: text("conversation_id")
+    .notNull()
+    .references(() => conversations.id),
+  role: text("role", { enum: ["user", "assistant"] }).notNull(),
   content: text("content").notNull(),
   attachments: text("attachments"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
 export interface Attachment {
@@ -60,48 +62,63 @@ export interface Attachment {
 
 export type Message = typeof messages.$inferSelect;
 
-// 任务表
-export const tasks = mysqlTable("tasks", {
-  id: serial("id").primaryKey(),
-  conversationId: bigint("conversationId", { mode: "number", unsigned: true }).notNull(),
-  userId: bigint("userId", { mode: "number", unsigned: true }).notNull(),
-  status: mysqlEnum("status", ["pending", "running", "completed", "failed"]).default("pending").notNull(),
-  outputFormat: mysqlEnum("outputFormat", ["pdf", "pptx"]).default("pdf").notNull(),
-  outputFile: varchar("outputFile", { length: 500 }),
-  progress: int("progress").default(0).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  completedAt: timestamp("completedAt"),
+export const tasks = sqliteTable("tasks", {
+  id: nid(),
+  conversationId: text("conversation_id")
+    .notNull()
+    .references(() => conversations.id),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id),
+  status: text("status", { enum: ["pending", "running", "completed", "failed"] })
+    .notNull()
+    .default("pending"),
+  outputFormat: text("output_format", { enum: ["pdf", "pptx"] })
+    .notNull()
+    .default("pdf"),
+  outputFile: text("output_file"),
+  progress: integer("progress").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
 });
 
 export type Task = typeof tasks.$inferSelect;
 
-// Agent 状态表
-export const agentStates = mysqlTable("agentStates", {
-  id: serial("id").primaryKey(),
-  taskId: bigint("taskId", { mode: "number", unsigned: true }).notNull(),
-  agentType: varchar("agentType", { length: 50 }).notNull(),
-  status: mysqlEnum("status", ["pending", "running", "completed", "error"]).default("pending").notNull(),
-  progress: int("progress").default(0).notNull(),
+export const agentStates = sqliteTable("agent_states", {
+  id: nid(),
+  taskId: text("task_id")
+    .notNull()
+    .references(() => tasks.id),
+  agentType: text("agent_type").notNull(),
+  status: text("status", { enum: ["pending", "running", "completed", "error"] })
+    .notNull()
+    .default("pending"),
+  progress: integer("progress").notNull().default(0),
   logs: text("logs"),
-  startedAt: timestamp("startedAt"),
-  completedAt: timestamp("completedAt"),
+  startedAt: integer("started_at", { mode: "timestamp" }),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
 });
 
 export type AgentState = typeof agentStates.$inferSelect;
 
-// 用户设置表
-export const userSettings = mysqlTable("userSettings", {
-  id: serial("id").primaryKey(),
-  userId: bigint("userId", { mode: "number", unsigned: true }).notNull().unique(),
-  zhipuApiKey: varchar("zhipuApiKey", { length: 500 }),
-  zhipuModel: varchar("zhipuModel", { length: 100 }).default("glm-4-flash"),
-  defaultFormat: mysqlEnum("defaultFormat", ["pdf", "pptx"]).default("pdf"),
-  defaultTemplate: varchar("defaultTemplate", { length: 100 }).default("modern_tech"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt")
-    .defaultNow()
+export const userSettings = sqliteTable("user_settings", {
+  id: nid(),
+  userId: text("user_id")
     .notNull()
-    .$onUpdate(() => new Date()),
+    .references(() => users.id)
+    .unique(),
+  zhipuApiKey: text("zhipu_api_key"),
+  zhipuModel: text("zhipu_model").default("glm-4-flash"),
+  defaultFormat: text("default_format", { enum: ["pdf", "pptx"] }).default("pdf"),
+  defaultTemplate: text("default_template").default("modern_tech"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
 export type UserSettings = typeof userSettings.$inferSelect;

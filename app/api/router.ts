@@ -1,4 +1,3 @@
-import { authRouter } from "./auth-router";
 import { conversationRouter } from "./conversation-router";
 import { messageRouter } from "./message-router";
 import { taskRouter } from "./task-router";
@@ -8,7 +7,6 @@ import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
-  auth: authRouter,
   conversation: conversationRouter,
   message: messageRouter,
   task: taskRouter,

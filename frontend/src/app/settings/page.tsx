@@ -94,67 +94,60 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 p-8">
+    <div className="page-container">
       <div className="max-w-2xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-2xl font-bold">设置</h1>
-          <a href="/magazine" className="text-blue-400 hover:text-blue-300 text-sm">
-            ← 返回杂志生成
-          </a>
-        </div>
+        <h1 className="text-2xl font-bold text-white mb-8">设置</h1>
 
-        <div className={`rounded-lg p-4 mb-6 ${configured ? 'bg-green-900/30 border border-green-700' : 'bg-yellow-900/30 border border-yellow-700'}`}>
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${configured ? 'bg-green-400' : 'bg-yellow-400'}`} />
-            <span className="text-sm">
-              {configured ? '智谱 API Key 已配置' : '未配置 API Key，请先配置'}
-            </span>
-          </div>
+        <div className={`glass-card p-4 mb-6 flex items-center gap-3 ${configured ? '' : ''}`}>
+          <div className={`w-2 h-2 rounded-full animate-pulse-glow ${configured ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+          <span className="text-sm text-white/60">
+            {configured ? '智谱 API Key 已配置' : '未配置 API Key，请先配置'}
+          </span>
         </div>
 
         {message && (
-          <div className={`rounded-lg p-4 mb-6 ${message.type === 'success' ? 'bg-green-900/30 border border-green-700' : 'bg-red-900/30 border border-red-700'}`}>
-            <p className="text-sm">{message.text}</p>
+          <div className={`glass-card p-4 mb-6 ${message.type === 'success' ? 'border-emerald-500/30' : 'border-red-500/30'}`}>
+            <p className="text-sm text-white/70">{message.text}</p>
           </div>
         )}
 
-        <div className="bg-gray-900 rounded-lg p-6 mb-4">
-          <h2 className="text-lg font-semibold mb-4">智谱 AI（必填）</h2>
+        <div className="glass-card p-6 mb-4">
+          <h2 className="section-title">智谱 AI（必填）</h2>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm text-gray-400 mb-1">API Key</label>
+              <label className="block text-sm text-white/40 mb-1.5">API Key</label>
               <input
                 type="password"
                 value={zhipuKey}
                 onChange={e => setZhipuKey(e.target.value)}
                 placeholder={configured ? '已配置，输入新值可覆盖' : '请输入智谱 API Key'}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
+                className="input-dark"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-400 mb-1">模型</label>
+              <label className="block text-sm text-white/40 mb-1.5">模型</label>
               <select
                 value={zhipuModel}
                 onChange={e => setZhipuModel(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
+                className="input-dark appearance-none"
               >
                 <option value="glm-4-flash">GLM-4-Flash（快速）</option>
                 <option value="glm-4-air">GLM-4-Air（均衡）</option>
                 <option value="glm-4-plus">GLM-4-Plus（精确）</option>
               </select>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-3 pt-2">
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                className="btn-primary"
               >
                 {saving ? '保存中...' : '保存'}
               </button>
               <button
                 onClick={handleTest}
                 disabled={testing || !configured}
-                className="bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                className="btn-secondary"
               >
                 {testing ? '测试中...' : '测试连接'}
               </button>
@@ -162,54 +155,38 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <details className="bg-gray-900 rounded-lg p-6 mb-4">
-          <summary className="text-lg font-semibold cursor-pointer">可选配置</summary>
-          <div className="space-y-4 mt-4">
+        <details className="glass-card p-6 mb-4 group">
+          <summary className="text-white font-semibold cursor-pointer flex items-center gap-2">
+            <svg className="w-4 h-4 text-white/30 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            可选配置
+          </summary>
+          <div className="space-y-4 mt-5 pl-6">
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Vision Key（图片理解）</label>
-              <input
-                type="password"
-                value={visionKey}
-                onChange={e => setVisionKey(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
-              />
+              <label className="block text-sm text-white/40 mb-1.5">Vision Key（图片理解）</label>
+              <input type="password" value={visionKey} onChange={e => setVisionKey(e.target.value)} className="input-dark" />
             </div>
             <div>
-              <label className="block text-sm text-gray-400 mb-1">SerpAPI Key（搜索）</label>
-              <input
-                type="password"
-                value={serpapiKey}
-                onChange={e => setSerpapiKey(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
-              />
+              <label className="block text-sm text-white/40 mb-1.5">SerpAPI Key（搜索）</label>
+              <input type="password" value={serpapiKey} onChange={e => setSerpapiKey(e.target.value)} className="input-dark" />
             </div>
             <div>
-              <label className="block text-sm text-gray-400 mb-1">FLUX Key（图片生成）</label>
-              <input
-                type="password"
-                value={fluxKey}
-                onChange={e => setFluxKey(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
-              />
+              <label className="block text-sm text-white/40 mb-1.5">FLUX Key（图片生成）</label>
+              <input type="password" value={fluxKey} onChange={e => setFluxKey(e.target.value)} className="input-dark" />
             </div>
             <div>
-              <label className="block text-sm text-gray-400 mb-1">FLUX API URL</label>
-              <input
-                type="text"
-                value={fluxApiUrl}
-                onChange={e => setFluxApiUrl(e.target.value)}
-                placeholder="https://api.example.com/v1"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
-              />
+              <label className="block text-sm text-white/40 mb-1.5">FLUX API URL</label>
+              <input type="text" value={fluxApiUrl} onChange={e => setFluxApiUrl(e.target.value)} placeholder="https://api.example.com/v1" className="input-dark" />
             </div>
           </div>
         </details>
 
-        <div className="bg-gray-900 rounded-lg p-6 border border-red-900/50">
-          <h2 className="text-lg font-semibold text-red-400 mb-3">危险区域</h2>
+        <div className="glass-card p-6 border-red-500/20">
+          <h2 className="text-red-400 font-semibold mb-3">危险区域</h2>
           <button
             onClick={handleDelete}
-            className="bg-red-900/50 hover:bg-red-800 text-red-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            className="px-4 py-2 rounded-xl text-sm font-medium bg-red-500/10 border border-red-500/20 text-red-300 hover:bg-red-500/20 transition-colors"
           >
             清除所有 API Key
           </button>

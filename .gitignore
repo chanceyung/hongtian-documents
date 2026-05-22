@@ -55,3 +55,13 @@ Thumbs.db
 # 安装包和压缩包
 *.zip
 *.tar.gz
+
+# Electron 构建产物
+desktop/resources/app-server/boot.mjs
+desktop/resources/app-server/sql-wasm.wasm
+desktop/resources/app-server/public/
+desktop/release/
+desktop/dist/
+
+# PyInstaller
+*.spec

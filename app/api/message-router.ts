@@ -2,34 +2,35 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { messages } from "@db/schema";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, desc } from "drizzle-orm";
 
 export const messageRouter = createRouter({
   list: publicQuery.input(z.object({
-    conversationId: z.number(),
-  })).query(async ({ input, ctx }) => {
-    const db = getDb();
-    const userId = ctx.user?.id;
-    if (!userId) return [];
+    conversationId: z.string(),
+  })).query(async ({ input }) => {
+    const db = await getDb();
     return db.select().from(messages)
       .where(eq(messages.conversationId, input.conversationId))
       .orderBy(asc(messages.createdAt));
   }),
 
   create: publicQuery.input(z.object({
-    conversationId: z.number(),
+    conversationId: z.string(),
     role: z.enum(["user", "assistant"]),
     content: z.string().min(1),
     attachments: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = getDb();
-    const result = await db.insert(messages).values({
+    const db = await getDb();
+    await db.insert(messages).values({
       conversationId: input.conversationId,
       role: input.role,
       content: input.content,
       attachments: input.attachments,
-    }).$returningId();
-    const [msg] = await db.select().from(messages).where(eq(messages.id, result[0].id));
-    return msg;
+    });
+    const rows = await db.select().from(messages)
+      .where(eq(messages.conversationId, input.conversationId))
+      .orderBy(desc(messages.createdAt))
+      .limit(1);
+    return rows[0];
   }),
 });

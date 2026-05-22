@@ -67,39 +67,49 @@ export default function FileUpload({ onUploadSuccess }: FileUploadProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div
         {...getRootProps()}
         className={`
-          border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-all
-          ${isDragActive ? 'border-brand-500 bg-brand-50' : 'border-brand-300 hover:border-brand-500'}
+          relative rounded-xl p-10 text-center cursor-pointer transition-all duration-300
+          border-2 border-dashed
+          ${isDragActive
+            ? 'border-accent/60 bg-accent/[0.06]'
+            : 'border-white/[0.1] hover:border-white/[0.2] hover:bg-white/[0.02]'
+          }
           ${isUploading ? 'pointer-events-none opacity-60' : ''}
         `}
       >
         <input {...getInputProps()} />
 
         <div className="space-y-4">
-          <div className="mx-auto w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center">
+          <div className={`mx-auto w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300 ${
+            isDragActive ? 'bg-accent/20' : 'bg-white/[0.05]'
+          }`}>
             {isUploading ? (
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div>
+              <div className="relative">
+                <div className="animate-spin rounded-full h-7 w-7 border-2 border-accent/30 border-t-accent" />
+              </div>
             ) : (
-              <svg className="w-8 h-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              <svg className={`w-6 h-6 transition-colors duration-300 ${isDragActive ? 'text-accent-light' : 'text-white/40'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
               </svg>
             )}
           </div>
 
           {isUploading ? (
             <div>
-              <p className="text-lg font-medium text-gray-900">正在上传...</p>
-              <p className="text-gray-600">{uploadProgress}%</p>
+              <p className="text-base font-medium text-white/80">正在上传...</p>
+              <div className="mt-3 w-48 mx-auto h-1 rounded-full bg-white/[0.06] overflow-hidden">
+                <div className="h-full rounded-full bg-gradient-to-r from-accent-dark to-accent-light transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
+              </div>
             </div>
           ) : (
             <div>
-              <p className="text-lg font-medium text-gray-900">
-                {isDragActive ? '释放文件以上传' : '拖拽文件到这里，或点击选择文件'}
+              <p className="text-base font-medium text-white/70">
+                {isDragActive ? '释放文件以上传' : '拖拽文件到这里，或点击选择'}
               </p>
-              <p className="text-sm text-gray-500 mt-2">
+              <p className="text-sm text-white/30 mt-2">
                 支持 PPTX、PDF、DOCX、XLSX、MD 格式
               </p>
             </div>
@@ -108,19 +118,17 @@ export default function FileUpload({ onUploadSuccess }: FileUploadProps) {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center">
-            <svg className="w-5 h-5 text-red-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p className="text-red-800">{error}</p>
-          </div>
+        <div className="flex items-center gap-2 bg-red-500/[0.08] border border-red-500/20 rounded-xl p-4">
+          <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-red-300 text-sm">{error}</p>
         </div>
       )}
 
-      <div className="text-center text-sm text-gray-500">
-        <p>文件将立即开始解析，无需等待</p>
-      </div>
+      <p className="text-center text-xs text-white/20">
+        文件将立即开始解析，无需等待
+      </p>
     </div>
   )
 }

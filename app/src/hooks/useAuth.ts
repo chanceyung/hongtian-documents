@@ -1,7 +1,12 @@
-import { trpc } from "@/providers/trpc";
-import { useCallback, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router";
-import { LOGIN_PATH } from "@/const";
+import { useCallback, useMemo } from "react";
+
+// Desktop app is always authenticated with a desktop user
+const DESKTOP_USER = {
+  id: "desktop-user",
+  name: "Desktop User",
+  email: "desktop@hongtian.ai",
+  role: "desktop",
+};
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -9,50 +14,31 @@ type UseAuthOptions = {
 };
 
 export function useAuth(options?: UseAuthOptions) {
-  const { redirectOnUnauthenticated = false, redirectPath = LOGIN_PATH } =
-    options ?? {};
+  // Always return authenticated desktop user
+  const user = DESKTOP_USER;
+  const isAuthenticated = true;
+  const isLoading = false;
+  const error = null;
 
-  const navigate = useNavigate();
+  const logout = useCallback(() => {
+    // No-op for desktop app
+    console.log("Logout is a no-op for desktop app");
+  }, []);
 
-  const utils = trpc.useUtils();
-
-  const {
-    data: user,
-    isLoading,
-    error,
-    refetch,
-  } = trpc.auth.me.useQuery(undefined, {
-    staleTime: 1000 * 60 * 5,
-    retry: false,
-  });
-
-  const logoutMutation = trpc.auth.logout.useMutation({
-    onSuccess: async () => {
-      await utils.invalidate();
-      navigate(redirectPath);
-    },
-  });
-
-  const logout = useCallback(() => logoutMutation.mutate(), [logoutMutation]);
-
-  useEffect(() => {
-    if (redirectOnUnauthenticated && !isLoading && !user) {
-      const currentPath = window.location.pathname;
-      if (currentPath !== redirectPath) {
-        navigate(redirectPath);
-      }
-    }
-  }, [redirectOnUnauthenticated, isLoading, user, navigate, redirectPath]);
+  const refresh = useCallback(() => {
+    // No-op for desktop app
+    return Promise.resolve(DESKTOP_USER);
+  }, []);
 
   return useMemo(
     () => ({
-      user: user ?? null,
-      isAuthenticated: !!user,
-      isLoading: isLoading || logoutMutation.isPending,
+      user,
+      isAuthenticated,
+      isLoading,
       error,
       logout,
-      refresh: refetch,
+      refresh,
     }),
-    [user, isLoading, logoutMutation.isPending, error, logout, refetch],
+    [user, isAuthenticated, isLoading, error, logout, refresh],
   );
 }

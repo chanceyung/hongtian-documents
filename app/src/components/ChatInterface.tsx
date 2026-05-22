@@ -153,12 +153,12 @@ export default function ChatInterface() {
         outputFormat: outputFormat as "pdf" | "pptx",
       });
       const agentStates = [
-        { id: 0, agentType: "coordinator", name: "协调 Agent", color: "#3B82F6", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
-        { id: 0, agentType: "parser", name: "解析 Agent", color: "#06B6D4", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
-        { id: 0, agentType: "analyzer", name: "分析 Agent", color: "#8B5CF6", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
-        { id: 0, agentType: "designer", name: "设计 Agent", color: "#EC4899", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
-        { id: 0, agentType: "renderer", name: "渲染 Agent", color: "#F59E0B", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
-        { id: 0, agentType: "fidelity", name: "校验 Agent", color: "#10B981", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
+        { id: "", agentType: "coordinator", name: "协调 Agent", color: "#3B82F6", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
+        { id: "", agentType: "parser", name: "解析 Agent", color: "#06B6D4", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
+        { id: "", agentType: "analyzer", name: "分析 Agent", color: "#8B5CF6", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
+        { id: "", agentType: "designer", name: "设计 Agent", color: "#EC4899", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
+        { id: "", agentType: "renderer", name: "渲染 Agent", color: "#F59E0B", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
+        { id: "", agentType: "fidelity", name: "校验 Agent", color: "#10B981", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
       ];
       setActiveTask({
         id: task.id,
@@ -171,7 +171,7 @@ export default function ChatInterface() {
     } catch (err) {
       console.error("Task error:", err);
       addMessage({
-        id: Date.now(),
+        id: String(Date.now()),
         role: "assistant",
         content: "抱歉，任务启动失败。请检查您的 API Key 设置是否正确，然后在设置页面配置智谱 API Key。",
         createdAt: new Date(),
@@ -241,7 +241,7 @@ export default function ChatInterface() {
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.32, duration: 0.4 }}
-              className="grid grid-cols-2 md:grid-cols-3 gap-2.5 max-w-[520px] w-full"
+              className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-w-[540px] w-full"
             >
               {TEMPLATES.map((template, i) => {
                 const Icon = template.icon;
