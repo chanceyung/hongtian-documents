@@ -39,6 +39,7 @@ export interface TaskUI {
   progress: number;
   outputFormat: "pdf" | "pptx";
   outputFile?: string;
+  pythonTaskId?: string;
   agentStates: AgentStateUI[];
 }
 

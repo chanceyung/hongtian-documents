@@ -67,12 +67,11 @@ export default function ChatInterface() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pendingFiles = useRef<File[]>([]);
 
   const utils = trpc.useUtils();
-  const uploadMutation = trpc.upload.upload.useMutation();
   const createMessage = trpc.message.create.useMutation();
   const createTask = trpc.task.create.useMutation();
-  const startPipeline = trpc.task.startPipeline.useMutation();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -92,6 +91,7 @@ export default function ChatInterface() {
       for (const file of Array.from(files)) {
         const ext = file.name.split(".").pop()?.toLowerCase() || "";
         const sizeKB = (file.size / 1024).toFixed(1);
+        pendingFiles.current.push(file);
         useStore.getState().addAttachment({
           fileName: file.name,
           fileSize: `${sizeKB} KB`,
@@ -120,6 +120,7 @@ export default function ChatInterface() {
 
     const userContent = inputText.trim() || "请处理上传的文件";
     const currentAttachments = attachments.length > 0 ? [...attachments] : undefined;
+    const filesToSend = [...pendingFiles.current];
 
     addMessage({
       id: `local-${Date.now()}`,
@@ -130,6 +131,7 @@ export default function ChatInterface() {
     });
     setInputText("");
     setAttachments([]);
+    pendingFiles.current = [];
 
     try {
       await createMessage.mutateAsync({
@@ -139,14 +141,33 @@ export default function ChatInterface() {
         attachments: currentAttachments ? JSON.stringify(currentAttachments) : undefined,
       });
 
+      let pythonTaskId: string | undefined;
       const settings = await utils.settings.get.fetch();
       const outputFormat = settings?.defaultFormat || "pdf";
+
+      // Upload files to Python backend
+      if (filesToSend.length > 0) {
+        const formData = new FormData();
+        formData.append("file", filesToSend[0]);
+        const uploadResp = await fetch(`/api/magazine/upload?session_id=desktop`, {
+          method: "POST",
+          body: formData,
+        });
+        if (!uploadResp.ok) {
+          const errText = await uploadResp.text();
+          throw new Error(`上传失败 (${uploadResp.status}): ${errText}`);
+        }
+        const uploadResult = await uploadResp.json();
+        pythonTaskId = uploadResult.task_id;
+      }
+
+      // Create task in local DB for UI tracking
       const task = await createTask.mutateAsync({
         conversationId: activeConversationId,
         outputFormat: outputFormat as "pdf" | "pptx",
       });
+
       const agentStates = [
-        { id: "", agentType: "coordinator", name: "协调 Agent", color: "#3B82F6", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
         { id: "", agentType: "parser", name: "解析 Agent", color: "#06B6D4", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
         { id: "", agentType: "analyzer", name: "分析 Agent", color: "#8B5CF6", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
         { id: "", agentType: "designer", name: "设计 Agent", color: "#EC4899", status: "pending" as const, progress: 0, logs: [], isExpanded: false },
@@ -158,15 +179,29 @@ export default function ChatInterface() {
         status: "running",
         progress: 0,
         outputFormat: outputFormat as "pdf" | "pptx",
-        agentStates: agentStates.map(a => ({ ...a, status: "running" as const })),
+        pythonTaskId,
+        agentStates,
       });
-      await startPipeline.mutateAsync({ taskId: task.id });
+
+      // Start real pipeline via generate endpoint
+      if (pythonTaskId) {
+        await fetch(`/api/magazine/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            task_id: pythonTaskId,
+            session_id: "desktop",
+            output_format: outputFormat,
+            template_id: settings?.defaultTemplate || "modern_tech",
+          }),
+        });
+      }
     } catch (err) {
       console.error("Send error:", err);
       addMessage({
         id: `err-${Date.now()}`,
         role: "assistant",
-        content: "抱歉，操作失败。请稍后重试。",
+        content: `操作失败: ${err instanceof Error ? err.message : "请稍后重试"}`,
         createdAt: new Date(),
       });
     }
@@ -364,7 +399,13 @@ export default function ChatInterface() {
                               {activeTask.outputFormat.toUpperCase()}
                             </span>
                           </div>
-                          <button className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-[12px] font-medium rounded-xl transition-all shadow-lg shadow-blue-600/20 hover:shadow-blue-500/30">
+                          <button
+                            onClick={() => {
+                              const pid = activeTask?.pythonTaskId;
+                              if (pid) window.open(`/api/magazine/export/${pid}`, "_blank");
+                            }}
+                            className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-[12px] font-medium rounded-xl transition-all shadow-lg shadow-blue-600/20 hover:shadow-blue-500/30"
+                          >
                             <Download className="w-3.5 h-3.5" />
                             下载
                           </button>

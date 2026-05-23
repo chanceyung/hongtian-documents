@@ -1,15 +1,18 @@
-"""Fidelity Agent — 四层保真校验：指纹 → 关联 → 语义 → 人工"""
-import hashlib
+"""Fidelity Agent — 四层保真校验：指纹 → 关联 → 语义 → 人工
+
+使用统一 LLMClient 进行 LLM 调用。
+"""
+from __future__ import annotations
+
+import json
 from typing import Literal
 
-import instructor
-from openai import AsyncOpenAI
 from pydantic import BaseModel
 
-from app.models.unified_document import UnifiedDocument, ContentFingerprint
-from app.models.edit_actions import MagazineEditPlan
-from app.core.retry import llm_retry
 from app.core.logging import get_logger
+from app.models.unified_document import UnifiedDocument
+from app.models.edit_actions import MagazineEditPlan
+from app.services.llm_client import LLMClient
 
 logger = get_logger(__name__)
 
@@ -28,29 +31,19 @@ class FidelityResult(BaseModel):
     passed: bool
     l1_score: float = 0.0
     l2_score: float = 0.0
-    l3_score: float = 0.0
+    l3_score: float = 0.3
     l4_required: bool = False
     issues: list[FidelityIssue] = []
-
-
-class SemanticCheckResult(BaseModel):
-    comparisons: list[dict]
-    overall_fidelity: float
 
 
 class FidelityAgent:
 
     def __init__(
         self,
-        api_key: str,
+        llm: LLMClient,
         threshold: float = 0.95,
-        base_url: str = "https://open.bigmodel.cn/api/paas/v4",
-        model: str = "glm-4-flash",
-    ):
-        self._model = model
-        self.client = instructor.from_openai(
-            AsyncOpenAI(api_key=api_key, base_url=base_url)
-        )
+    ) -> None:
+        self.llm = llm
         self.threshold = threshold
 
     async def verify(
@@ -168,7 +161,6 @@ class FidelityAgent:
 
         return score, issues
 
-    @llm_retry
     async def _check_semantic(
         self, doc: UnifiedDocument, plan: MagazineEditPlan,
     ) -> tuple[float, list[FidelityIssue]]:
@@ -199,23 +191,21 @@ class FidelityAgent:
         if not comparisons:
             return 1.0, []
 
-        result = await self.client.chat.completions.create(
-            model=self._model,
-            response_model=SemanticCheckResult,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "你是内容保真校验专家。对比原始文字和生成文字，判断语义是否一致。"
-                               "规则：1.只检查含义是否相同 2.数据、数字、专有名词必须100%一致 "
-                               "3.每个对比给出 faithful(true/false) 和说明 "
-                               "4.overall_fidelity = faithful数量/总数量",
-                },
-                {"role": "user", "content": str(comparisons)},
-            ],
+        result = await self.llm.chat_json(
+            system=(
+                "你是内容保真校验专家。对比原始文字和生成文字，判断语义是否一致。\n"
+                "规则：1.只检查含义是否相同 2.数据、数字、专有名词必须100%一致 "
+                "3.每个对比给出 faithful(true/false) 和说明\n"
+                "返回 JSON 对象：{\"comparisons\":[{\"id\":\"...\",\"faithful\":true,"
+                "\"reason\":\"...\"}],\"overall_fidelity\":0.95}\n"
+                "只返回 JSON，不要其他文字。"
+            ),
+            user=json.dumps(comparisons, ensure_ascii=False),
             temperature=0.0,
         )
 
-        unfaithful = [c for c in result.comparisons if not c.get("faithful", True)]
+        comparisons_list = result.get("comparisons", [])
+        unfaithful = [c for c in comparisons_list if not c.get("faithful", True)]
 
         for u in unfaithful:
             orig = next(
@@ -229,4 +219,4 @@ class FidelityAgent:
                 generated=u.get("generated", "")[:100],
             ))
 
-        return result.overall_fidelity, issues
+        return result.get("overall_fidelity", 1.0), issues

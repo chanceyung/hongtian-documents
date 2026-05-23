@@ -41,6 +41,7 @@ class GenerateRequest(BaseModel):
     session_id: str = Field(default="", description="会话 ID")
     output_format: str = Field(default="pdf", description="输出格式：pdf 或 pptx")
     template_id: str = Field(default="modern_tech", description="模板 ID")
+    skill: str = Field(default="", description="技能名称，如 standard/data-focus/briefing/academic")
 
 
 class TaskStatus(BaseModel):
@@ -92,12 +93,13 @@ async def upload_document(
     file_path.write_bytes(content)
 
     session_id = request.query_params.get("session_id") or request.headers.get("X-Session-ID") or task_id
+    skill_name = request.query_params.get("skill", "") or ""
 
     await task_db.create_task(
         task_id, session_id=session_id, source_file=str(file_path),
     )
 
-    background_tasks.add_task(_run_pipeline, task_id, file_path, session_id)
+    background_tasks.add_task(_run_pipeline, task_id, file_path, session_id, skill_name=skill_name)
     return {"task_id": task_id, "status": "pending", "session_id": session_id}
 
 
@@ -278,8 +280,16 @@ async def generate_magazine(
         session_id,
         req.output_format,
         req.template_id,
+        skill_name=req.skill,
     )
     return {"task_id": req.task_id, "status": "pending"}
+
+
+@router.get("/skills", summary="可用技能列表", description="返回所有可用的文档处理技能及其参数配置。")
+async def list_skills():
+    from app.skills.registry import skill_registry
+    return [s.model_dump() for s in skill_registry.list_all()]
+
 
 @router.post("/cleanup", summary="清理旧任务", description="删除超过指定天数的旧任务及其关联文件。默认 7 天。")
 async def cleanup_old_tasks(days: int = 7):
@@ -302,6 +312,7 @@ async def _run_pipeline(
     session_id: str,
     output_format: str = "pdf",
     template_id: str = "modern_tech",
+    skill_name: str = "",
 ):
     if not start_task():
         return
@@ -313,6 +324,22 @@ async def _run_pipeline(
             renderer_node, fidelity_node, repair_node,
             finalize_node, should_repair,
         )
+        from app.workflow.magazine_pipeline import _get_api_key
+        from app.services.llm_client import LLMClient
+        from app.skills.registry import skill_registry
+
+        # 创建统一 LLM 客户端
+        api_key = await _get_api_key(session_id)
+        llm = LLMClient(
+            api_key=api_key,
+            base_url=settings.CUSTOM_LLM_URL,
+            model=settings.CUSTOM_MODEL,
+        )
+
+        # 加载技能
+        skill = skill_registry.get(skill_name) if skill_name else None
+        if not skill:
+            skill = skill_registry.get_default()
 
         state: dict = {
             "file_path": str(file_path),
@@ -321,6 +348,9 @@ async def _run_pipeline(
             "output_format": output_format,
             "template_id": template_id,
             "repair_count": 0,
+            "llm": llm,
+            "skill_name": skill.name,
+            "skill": skill,
         }
 
         # Step 1: Parse

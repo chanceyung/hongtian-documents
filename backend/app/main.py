@@ -1,6 +1,7 @@
 """杂志级文档重构智能体 - 后端主入口"""
 import asyncio
 import os
+import shutil
 import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -24,6 +25,10 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     await task_db.initialize()
     await redis_client.initialize()
+
+    # 加载内置技能
+    from app.skills.registry import skill_registry
+    skill_registry.load_builtin_skills()
     if DESKTOP_MODE:
         logger.info("service.desktop_mode", storage="SQLite KV Store")
     else:
@@ -71,43 +76,40 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api")
 
 
-# ─── 桌面模式：托管前端静态文件 ────────────────────────────────────────────
+# ─── 桌面模式：托管前端静态文件（仅 PyInstaller 打包模式） ────────────────
 if DESKTOP_MODE:
     import sys
+    _static_dir = None
     if getattr(sys, 'frozen', False):
-        # PyInstaller 打包模式：静态文件在 _internal/app/static/
-        static_dir = Path(sys._MEIPASS) / "app" / "static"
-    else:
-        static_dir = Path(__file__).parent / "static"
-    if static_dir.exists() and (static_dir / "index.html").exists():
+        _static_dir = Path(sys._MEIPASS) / "app" / "static"
+
+    if _static_dir and _static_dir.exists() and (_static_dir / "index.html").exists():
         from fastapi.staticfiles import StaticFiles as _StaticFiles
 
-        _next_dir = static_dir / "_next"
+        _next_dir = _static_dir / "_next"
         if _next_dir.exists():
             app.mount("/_next", _StaticFiles(directory=_next_dir), name="static-assets")
         for subdir in ["logo"]:
-            sub_path = static_dir / subdir
+            sub_path = _static_dir / subdir
             if sub_path.exists():
                 app.mount(f"/{subdir}", _StaticFiles(directory=sub_path), name=f"static-{subdir}")
 
         @app.get("/{page:path}")
         async def serve_frontend(page: str = ""):
-            """Serve Next.js static export HTML files."""
             if not page or page == "/":
-                html_path = static_dir / "index.html"
+                html_path = _static_dir / "index.html"
             else:
-                html_path = static_dir / f"{page}.html"
+                html_path = _static_dir / f"{page}.html"
                 if not html_path.exists():
-                    html_path = static_dir / page / "index.html"
+                    html_path = _static_dir / page / "index.html"
                 if not html_path.exists():
-                    html_path = static_dir / "index.html"
+                    html_path = _static_dir / "index.html"
             if html_path.exists():
                 from fastapi.responses import FileResponse
                 return FileResponse(html_path, media_type="text/html")
             from fastapi.responses import Response
             return Response(status_code=404)
 
-        # 自动打开浏览器
         import threading
         def _open_browser():
             import time

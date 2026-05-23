@@ -1,75 +1,81 @@
-"""Designer Agent — PPTAgent 风格的排版规划：选择模板 + 生成编辑动作"""
-import instructor
-from openai import AsyncOpenAI
-from pydantic import BaseModel
+"""Designer Agent — 排版规划：选择模板 + 生成编辑动作
 
+使用统一 LLMClient 进行 LLM 调用。
+"""
+from __future__ import annotations
+
+import json
+
+from app.core.logging import get_logger
 from app.models.unified_document import UnifiedDocument
 from app.models.edit_actions import MagazineEditPlan, SlideEditPlan, EditAction
-from app.models.design_spec import DesignSpec, ColorScheme, Typography
-from app.core.retry import llm_retry
-from app.core.logging import get_logger
+from app.models.design_spec import DesignSpec, ColorScheme
+from app.services.llm_client import LLMClient
 
 logger = get_logger(__name__)
 
 
-class DesignSpecResult(BaseModel):
-    style: str
-    color_primary: str
-    color_secondary: str
-    color_accent: str
-    color_background: str
-    suggested_pages: int
-
-
-class PageMappingResult(BaseModel):
-    pages: list[dict]
-
-
 class DesignerAgent:
 
-    def __init__(self, api_key: str, base_url: str = "https://open.bigmodel.cn/api/paas/v4", model: str = "glm-4-flash"):
-        self._model = model
-        self.client = instructor.from_openai(
-            AsyncOpenAI(api_key=api_key, base_url=base_url)
-        )
+    def __init__(self, llm: LLMClient) -> None:
+        self.llm = llm
 
     async def design(
         self,
         doc: UnifiedDocument,
         analysis: dict,
         template_id: str,
+        skill_overrides: dict | None = None,
     ) -> MagazineEditPlan:
-        design_spec = await self._determine_design_spec(doc, analysis)
+        design_spec = await self._determine_design_spec(doc, analysis, skill_overrides)
         page_mapping = await self._map_content_to_pages(doc, analysis, design_spec)
         edit_plan = await self._generate_edit_actions(doc, page_mapping, design_spec)
         edit_plan = self._validate_completeness(doc, edit_plan)
         return edit_plan
 
-    @llm_retry
-    async def _determine_design_spec(self, doc: UnifiedDocument, analysis: dict) -> DesignSpec:
-        result = await self.client.chat.completions.create(
-            model=self._model,
-            response_model=DesignSpecResult,
-            messages=[
-                {"role": "system", "content": "根据文档类型推荐设计规范。"},
-                {"role": "user", "content": f"文档类型: {analysis.get('document_type')}\n目标受众: {analysis.get('target_audience')}"},
-            ],
+    async def _determine_design_spec(
+        self,
+        doc: UnifiedDocument,
+        analysis: dict,
+        skill_overrides: dict | None = None,
+    ) -> DesignSpec:
+        result = await self.llm.chat_json(
+            system=(
+                "根据文档类型推荐设计规范。\n"
+                "返回 JSON 对象：{\"style\":\"...\",\"color_primary\":\"#...\",\"color_secondary\":\"#...\","
+                "\"color_accent\":\"#...\",\"color_background\":\"#...\",\"suggested_pages\":10}\n"
+                "只返回 JSON，不要其他文字。"
+            ),
+            user=f"文档类型: {analysis.get('document_type')}\n目标受众: {analysis.get('target_audience')}",
+            temperature=0.1,
         )
+
+        # 技能覆盖
+        if skill_overrides:
+            if skill_overrides.get("style_override"):
+                result["style"] = skill_overrides["style_override"]
+            if skill_overrides.get("color_scheme_override"):
+                cs = skill_overrides["color_scheme_override"]
+                result.setdefault("color_primary", cs.get("primary", "#1a1a2e"))
+                result.setdefault("color_secondary", cs.get("secondary", "#16213e"))
+                result.setdefault("color_accent", cs.get("accent", "#0f3460"))
+                result.setdefault("color_background", cs.get("background", "#ffffff"))
+            if skill_overrides.get("target_pages_override"):
+                result["suggested_pages"] = skill_overrides["target_pages_override"]
 
         return DesignSpec(
             colors=ColorScheme(
-                primary=result.color_primary,
-                secondary=result.color_secondary,
-                accent=result.color_accent,
-                background=result.color_background,
+                primary=result.get("color_primary", "#1a1a2e"),
+                secondary=result.get("color_secondary", "#16213e"),
+                accent=result.get("color_accent", "#0f3460"),
+                background=result.get("color_background", "#ffffff"),
             ),
-            target_pages=result.suggested_pages,
-            style=result.style,
+            target_pages=result.get("suggested_pages", 10),
+            style=result.get("style", "modern_tech"),
         )
 
-    @llm_retry
     async def _map_content_to_pages(
-        self, doc: UnifiedDocument, analysis: dict, spec: DesignSpec
+        self, doc: UnifiedDocument, analysis: dict, spec: DesignSpec,
     ) -> list[dict]:
         groups = analysis.get("content_groups", [])
         if not groups:
@@ -78,18 +84,18 @@ class DesignerAgent:
                        "table_ids": [], "suggested_layout": "text_only"}
                       for i, t in enumerate(doc.texts[:spec.target_pages])]
 
-        result = await self.client.chat.completions.create(
-            model=self._model,
-            response_model=PageMappingResult,
-            messages=[
-                {"role": "system", "content": """将内容分组映射到页面。
-布局类型: cover | text_only | text_image | data_card | two_column
-输出: pages 数组，每项含 page_number, layout_type, text_ids, image_ids, table_ids"""},
-                {"role": "user", "content": f"内容分组: {groups}\n目标页数: {spec.target_pages}"},
-            ],
+        result = await self.llm.chat_json(
+            system=(
+                "将内容分组映射到页面。\n"
+                "布局类型: cover | text_only | text_image | data_card | two_column\n"
+                "返回 JSON 对象：{\"pages\":[{\"page_number\":1,\"layout_type\":\"text_only\","
+                "\"text_ids\":[\"id1\"],\"image_ids\":[],\"table_ids\":[]}]}\n"
+                "只返回 JSON，不要其他文字。"
+            ),
+            user=f"内容分组: {json.dumps(groups, ensure_ascii=False)}\n目标页数: {spec.target_pages}",
             temperature=0.1,
         )
-        return result.pages
+        return result.get("pages", [])
 
     async def _generate_edit_actions(
         self,
@@ -153,7 +159,7 @@ class DesignerAgent:
         return "body"
 
     def _validate_completeness(
-        self, doc: UnifiedDocument, plan: MagazineEditPlan
+        self, doc: UnifiedDocument, plan: MagazineEditPlan,
     ) -> MagazineEditPlan:
         planned_text_ids: set[str] = set()
         planned_image_ids: set[str] = set()

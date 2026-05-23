@@ -1,19 +1,28 @@
-"""Supplement Agent — 素材补充：Pexels → Unsplash → AI 生图"""
+"""Supplement Agent — 素材补充：Pexels → Unsplash → AI 生图
+
+使用统一 LLMClient 进行关键词提取和 prompt 生成。
+"""
+from __future__ import annotations
+
 import asyncio
 import hashlib
-import base64
 from pathlib import Path
 from typing import Optional
 
 import httpx
 
+from app.core.logging import get_logger
 from app.models.unified_document import UnifiedDocument, ImageElement
 from app.models.edit_actions import MagazineEditPlan
+from app.services.llm_client import LLMClient
+
+logger = get_logger(__name__)
 
 
 class SupplementAgent:
 
-    def __init__(self, session_id: str):
+    def __init__(self, llm: LLMClient, session_id: str) -> None:
+        self.llm = llm
         self.session_id = session_id
         from app.core.config import settings
         self.unsplash_key = getattr(settings, "UNSPLASH_ACCESS_KEY", "")
@@ -184,20 +193,25 @@ class SupplementAgent:
                 return None
 
     async def _extract_keywords(self, context: str) -> str:
-        from app.services.zhipu_client import ZhipuClient
         try:
-            client = ZhipuClient(self.session_id)
-            keywords = await client.generate_search_keywords(context)
-            if isinstance(keywords, list):
-                return " ".join(keywords[:3])
-            return str(keywords)
+            result = await self.llm.chat_json(
+                system="根据文字内容，生成3-5个精确的图片搜索关键词。输出JSON数组格式。",
+                user=context,
+            )
+            if isinstance(result, list):
+                return " ".join(str(k) for k in result[:3])
+            if isinstance(result, dict) and "keywords" in result:
+                return " ".join(str(k) for k in result["keywords"][:3])
+            return str(result)
         except Exception:
             return " ".join(context.split()[:5])
 
     async def _generate_image_prompt(self, context: str) -> str:
-        from app.services.zhipu_client import ZhipuClient
         try:
-            client = ZhipuClient(self.session_id)
-            return await client.generate_image_prompt(context)
+            return await self.llm.chat_text(
+                system="根据文字内容生成AI绘图提示词。风格：professional。英文输出，适合Flux.1模型。",
+                user=context,
+                temperature=0.7,
+            )
         except Exception:
             return f"professional business presentation illustration, {context[:100]}, high quality"

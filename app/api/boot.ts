@@ -23,7 +23,65 @@ const MIME: Record<string, string> = {
 
 const app = new Hono();
 
-app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
+app.use(bodyLimit({ maxSize: 100 * 1024 * 1024 }));
+
+// ── Proxy to Python FastAPI backend ──────────────────────────────────────
+const PYTHON_PORT = parseInt(process.env.PYTHON_BACKEND_PORT || "8000");
+
+async function proxyToPython(c: any): Promise<Response> {
+  const target = `http://127.0.0.1:${PYTHON_PORT}${c.req.path}`;
+  const method = c.req.method;
+  const headers: Record<string, string> = {};
+  c.req.raw.headers.forEach((v: string, k: string) => {
+    // Skip host and connection headers that would conflict
+    if (k.toLowerCase() !== "host" && k.toLowerCase() !== "connection") {
+      headers[k] = v;
+    }
+  });
+
+  let body: BodyInit | null = null;
+  if (method !== "GET" && method !== "HEAD") {
+    body = await c.req.raw.arrayBuffer();
+  }
+
+  const resp = await fetch(target, { method, headers, body });
+  // Check if SSE stream
+  const contentType = resp.headers.get("content-type") || "";
+  if (contentType.includes("text/event-stream")) {
+    return new Response(resp.body, {
+      status: resp.status,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  }
+  // Regular response
+  const respHeaders = new Headers();
+  resp.headers.forEach((v: string, k: string) => {
+    if (k.toLowerCase() !== "transfer-encoding") respHeaders.set(k, v);
+  });
+  return new Response(resp.body, { status: resp.status, headers: respHeaders });
+}
+
+app.all("/api/magazine/*", async (c) => {
+  try {
+    return await proxyToPython(c);
+  } catch (err) {
+    console.error("[Proxy /api/magazine]", err);
+    return c.json({ error: "Python backend unavailable", detail: String(err) }, 503);
+  }
+});
+
+app.all("/api/api-keys/*", async (c) => {
+  try {
+    return await proxyToPython(c);
+  } catch (err) {
+    console.error("[Proxy /api/api-keys]", err);
+    return c.json({ error: "Python backend unavailable", detail: String(err) }, 503);
+  }
+});
 
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
@@ -33,7 +91,13 @@ app.use("/api/trpc/*", async (c) => {
     createContext,
   });
 });
-app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
+app.all("/api/*", (c) => {
+  // Skip routes already handled by proxy or tRPC
+  if (c.req.path.startsWith("/api/magazine") || c.req.path.startsWith("/api/api-keys") || c.req.path.startsWith("/api/trpc")) {
+    return c.notFound();
+  }
+  return c.json({ error: "Not Found" }, 404);
+});
 
 if (env.isProduction) {
   const __dirname = dirname(fileURLToPath(import.meta.url));

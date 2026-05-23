@@ -10,7 +10,9 @@ import * as net from 'net'
 
 let mainWindow: BrowserWindow | null = null
 let serverProcess: ChildProcess | null = null
+let pythonProcess: ChildProcess | null = null
 let serverPort = 3000
+let pythonPort = 8000
 let isQuitting = false
 
 function findFreePort(startPort: number): Promise<number> {
@@ -43,6 +45,7 @@ function getUserDataDir(): string {
 
 function registerIpcHandlers(): void {
   ipcMain.handle('get-backend-port', () => serverPort)
+  ipcMain.handle('get-python-port', () => pythonPort)
   ipcMain.handle('app:getVersion', () => app.getVersion())
   ipcMain.handle('dialog:openFile', async (_event, filters) => {
     const result = await dialog.showOpenDialog(mainWindow!, {
@@ -75,6 +78,7 @@ async function startServer(): Promise<void> {
     NODE_ENV: 'production',
     DESKTOP_MODE: 'true',
     PORT: String(serverPort),
+    PYTHON_BACKEND_PORT: String(pythonPort),
     DATABASE_PATH: join(dataDir, 'hongtian.db'),
   }
   Object.keys(env).forEach(k => { if (env[k] === undefined) delete env[k] })
@@ -126,6 +130,84 @@ async function stopServer(): Promise<void> {
     }, 5000)
     serverProcess?.on('exit', () => { clearTimeout(timeout); resolve() })
     serverProcess?.kill('SIGTERM')
+  })
+}
+
+async function startPythonBackend(): Promise<void> {
+  pythonPort = await findFreePort(8000)
+
+  const resPath = getResourcesPath()
+  const dataDir = getUserDataDir()
+
+  // In packaged app, look for embedded Python; in dev, use system Python
+  const isPackaged = app.isPackaged
+  const pythonExe = platform() === 'win32' ? 'python.exe' : 'python3'
+  const systemPython = platform() === 'win32' ? 'python' : 'python3'
+
+  let pythonCmd: string
+  let pythonCwd: string
+  let pythonArgs: string[]
+
+  if (isPackaged) {
+    const pythonDir = join(resPath, 'resources', 'python', 'hongtian-backend')
+    pythonCmd = join(pythonDir, pythonExe)
+    pythonCwd = pythonDir
+    pythonArgs = ['desktop_main.py']
+  } else {
+    // Dev mode: use system Python, point to backend/ directory
+    pythonCmd = systemPython
+    pythonCwd = join(resPath, 'backend')
+    pythonArgs = ['desktop_main.py']
+  }
+
+  const env: Record<string, string | undefined> = {
+    ...process.env as Record<string, string>,
+    DESKTOP_MODE: 'true',
+    PORT: String(pythonPort),
+    PYTHONUNBUFFERED: '1',
+  }
+  Object.keys(env).forEach(k => { if (env[k] === undefined) delete env[k] })
+
+  console.log(`[Main] Starting Python backend on port ${pythonPort}`)
+  console.log(`[Main] Python: ${pythonCmd} ${pythonArgs.join(' ')}`)
+  console.log(`[Main] CWD: ${pythonCwd}`)
+
+  pythonProcess = spawn(pythonCmd, pythonArgs, {
+    cwd: pythonCwd,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+
+  pythonProcess.stdout?.on('data', (data: Buffer) => {
+    console.log(`[Python] ${data.toString().trim()}`)
+  })
+
+  pythonProcess.stderr?.on('data', (data: Buffer) => {
+    const msg = data.toString().trim()
+    if (msg) console.log(`[Python] ${msg}`)
+  })
+
+  pythonProcess.on('error', (err) => {
+    console.error(`[Main] Python backend failed to start: ${err.message}`)
+  })
+
+  pythonProcess.on('exit', (code) => {
+    if (!isQuitting) console.error(`[Python] exited with code ${code}`)
+  })
+
+  await waitForServer(pythonPort, 30_000)
+  console.log(`[Main] Python backend ready on port ${pythonPort}`)
+}
+
+async function stopPythonBackend(): Promise<void> {
+  if (!pythonProcess || pythonProcess.killed) return
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      pythonProcess?.kill('SIGKILL')
+      resolve()
+    }, 5000)
+    pythonProcess?.on('exit', () => { clearTimeout(timeout); resolve() })
+    pythonProcess?.kill('SIGTERM')
   })
 }
 
@@ -204,6 +286,11 @@ app.whenReady().then(async () => {
     registerIpcHandlers()
     Menu.setApplicationMenu(null)
     await startServer()
+    try {
+      await startPythonBackend()
+    } catch (err) {
+      console.error('[Main] Python backend failed (non-fatal):', err)
+    }
     createWindow()
   } catch (err) {
     console.error('[Main] Failed:', err)
@@ -214,6 +301,11 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => { if (platform() !== 'darwin') app.quit() })
 app.on('before-quit', async (e) => {
-  if (serverProcess && !isQuitting) { e.preventDefault(); await stopServer(); app.quit() }
+  if ((serverProcess && !isQuitting) || (pythonProcess && !pythonProcess.killed)) {
+    e.preventDefault()
+    await stopPythonBackend()
+    await stopServer()
+    app.quit()
+  }
 })
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })

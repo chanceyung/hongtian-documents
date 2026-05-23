@@ -1,3 +1,9 @@
+"""杂志级文档重构 Pipeline — LangGraph 工作流编排
+
+集成 LLMClient 统一调用 + 技能系统参数覆盖。
+"""
+from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import TypedDict
@@ -8,6 +14,8 @@ from app.core.logging import get_logger
 from app.models.unified_document import UnifiedDocument
 from app.models.edit_actions import MagazineEditPlan, EditAction, SlideEditPlan
 from app.models.design_spec import DesignSpec
+from app.services.llm_client import LLMClient
+from app.skills.types import SkillDefinition
 
 logger = get_logger(__name__)
 
@@ -28,6 +36,10 @@ class PipelineState(TypedDict, total=False):
     fidelity_passed: bool
     fidelity_issues: list[dict]
     repair_count: int
+    # LLM + 技能（运行时注入）
+    llm: LLMClient
+    skill_name: str
+    skill: SkillDefinition
 
 
 async def _get_api_key(session_id: str) -> str:
@@ -42,6 +54,21 @@ async def _get_api_key(session_id: str) -> str:
     return decrypt_key(encrypted)
 
 
+def _skill_overrides(skill: SkillDefinition | None) -> dict:
+    if not skill:
+        return {}
+    overrides: dict = {}
+    if skill.style_override:
+        overrides["style_override"] = skill.style_override
+    if skill.color_scheme_override:
+        overrides["color_scheme_override"] = skill.color_scheme_override
+    if skill.target_pages_override:
+        overrides["target_pages_override"] = skill.target_pages_override
+    if skill.layout_preferences:
+        overrides["layout_preferences"] = skill.layout_preferences
+    return overrides
+
+
 async def parser_node(state: PipelineState) -> dict:
     from app.agents.parser_agent import ParserAgent
 
@@ -53,26 +80,42 @@ async def parser_node(state: PipelineState) -> dict:
 
 async def analyzer_node(state: PipelineState) -> dict:
     from app.agents.analyzer_agent import AnalyzerAgent
-    from app.core.config import settings
 
     logger.info("pipeline.analyze.start", session_id=state["session_id"])
-    api_key = await _get_api_key(state["session_id"])
-    agent = AnalyzerAgent(api_key, model=settings.CUSTOM_MODEL)
+    llm: LLMClient = state["llm"]
+    skill: SkillDefinition | None = state.get("skill")
+
+    agent = AnalyzerAgent(llm)
+
+    # 技能附加指令
+    if skill and skill.analyzer_instructions:
+        doc = state["document"]
+        extra_analysis = await llm.chat_json(
+            system=f"对文档进行补充分析。{skill.analyzer_instructions}\n返回 JSON 对象。",
+            user="\n".join(t.content[:200] for t in doc.texts[:20])[:4000],
+        )
+        analysis = await agent.analyze(state["document"])
+        analysis["skill_analysis"] = extra_analysis
+        return {"analysis": analysis}
+
     analysis = await agent.analyze(state["document"])
     return {"analysis": analysis}
 
 
 async def designer_node(state: PipelineState) -> dict:
     from app.agents.designer_agent import DesignerAgent
-    from app.core.config import settings
 
     logger.info("pipeline.design.start", session_id=state["session_id"], template_id=state["template_id"])
-    api_key = await _get_api_key(state["session_id"])
-    agent = DesignerAgent(api_key, model=settings.CUSTOM_MODEL)
+    llm: LLMClient = state["llm"]
+    skill: SkillDefinition | None = state.get("skill")
+
+    agent = DesignerAgent(llm)
+    overrides = _skill_overrides(skill)
     plan = await agent.design(
         state["document"],
         state["analysis"],
         state["template_id"],
+        skill_overrides=overrides if overrides else None,
     )
     return {"edit_plan": plan, "design_spec": plan.design_spec}
 
@@ -95,7 +138,8 @@ async def check_missing_assets_node(state: PipelineState) -> str:
 async def supplement_node(state: PipelineState) -> dict:
     from app.agents.supplement_agent import SupplementAgent
 
-    agent = SupplementAgent(state["session_id"])
+    llm: LLMClient = state["llm"]
+    agent = SupplementAgent(llm, state["session_id"])
     await agent.supplement(state["document"], state["edit_plan"])
     return {"supplemented": True}
 
@@ -131,8 +175,14 @@ async def fidelity_node(state: PipelineState) -> dict:
     from app.core.config import settings
 
     logger.info("pipeline.fidelity.start", session_id=state["session_id"])
-    api_key = await _get_api_key(state["session_id"])
-    agent = FidelityAgent(api_key, threshold=settings.FIDELITY_THRESHOLD, model=settings.CUSTOM_MODEL)
+    llm: LLMClient = state["llm"]
+    skill: SkillDefinition | None = state.get("skill")
+
+    threshold = settings.FIDELITY_THRESHOLD
+    if skill and skill.fidelity_threshold is not None:
+        threshold = skill.fidelity_threshold
+
+    agent = FidelityAgent(llm, threshold=threshold)
     result = await agent.verify(state["document"], state["edit_plan"])
     return {
         "fidelity_score": result.overall_score,
@@ -174,12 +224,16 @@ async def repair_node(state: PipelineState) -> dict:
 async def finalize_node(state: PipelineState) -> dict:
     from app.core.config import settings
 
+    llm: LLMClient = state["llm"]
+
     summary = {
         "output_path": state.get("output_path", ""),
         "fidelity_score": state.get("fidelity_score", 0),
         "fidelity_passed": state.get("fidelity_passed", False),
         "repair_count": state.get("repair_count", 0),
         "supplemented": state.get("supplemented", False),
+        "skill": state.get("skill_name", "standard"),
+        "usage": llm.get_usage_summary(),
     }
 
     output_dir = Path(settings.OUTPUT_DIR) / state["task_id"]

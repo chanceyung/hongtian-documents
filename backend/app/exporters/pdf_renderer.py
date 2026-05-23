@@ -133,18 +133,21 @@ class HybridPdfRenderer:
             return pdf_bytes
 
     async def _render_weasyprint(self, html: str, css: str) -> bytes:
-        from weasyprint import HTML, CSS
+        try:
+            from weasyprint import HTML, CSS
 
-        table_css = css + """
-        table { page-break-inside: auto; }
-        tr    { page-break-inside: avoid; page-break-after: auto; }
-        td    { page-break-inside: avoid; }
-        thead { display: table-header-group; }
-        tfoot { display: table-footer-group; }
-        """
-        html_doc = HTML(string=html)
-        css_doc = CSS(string=table_css)
-        return html_doc.write_pdf(stylesheets=[css_doc])
+            table_css = css + """
+            table { page-break-inside: auto; }
+            tr    { page-break-inside: avoid; page-break-after: auto; }
+            td    { page-break-inside: avoid; }
+            thead { display: table-header-group; }
+            tfoot { display: table-footer-group; }
+            """
+            html_doc = HTML(string=html)
+            css_doc = CSS(string=table_css)
+            return html_doc.write_pdf(stylesheets=[css_doc])
+        except (ImportError, OSError):
+            return await self._render_playwright(html, css)
 
     def _merge_pdfs(self, pdf_pages: list[bytes], output_path: Path) -> None:
         from PyPDF2 import PdfMerger

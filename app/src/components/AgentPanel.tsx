@@ -13,11 +13,9 @@ import {
   Activity,
 } from "lucide-react";
 import { useStore } from "@/hooks/useStore";
-import { trpc } from "@/providers/trpc";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 const AGENT_CONFIG: Record<string, { name: string; color: string; gradient: string }> = {
-  coordinator: { name: "协调 Agent", color: "#3B82F6", gradient: "from-blue-500 to-blue-600" },
   parser: { name: "解析 Agent", color: "#06B6D4", gradient: "from-cyan-500 to-cyan-600" },
   analyzer: { name: "分析 Agent", color: "#8B5CF6", gradient: "from-violet-500 to-violet-600" },
   designer: { name: "设计 Agent", color: "#EC4899", gradient: "from-pink-500 to-pink-600" },
@@ -25,33 +23,114 @@ const AGENT_CONFIG: Record<string, { name: string; color: string; gradient: stri
   fidelity: { name: "校验 Agent", color: "#10B981", gradient: "from-emerald-500 to-emerald-600" },
 };
 
+// Map Python pipeline status to agent type and overall progress
+const STATUS_AGENT_MAP: Record<string, { agent: string; label: string }> = {
+  parsing: { agent: "parser", label: "解析文档结构" },
+  analyzing: { agent: "analyzer", label: "内容语义分析" },
+  designing: { agent: "designer", label: "排版设计" },
+  supplementing: { agent: "designer", label: "补充素材" },
+  rendering: { agent: "renderer", label: "渲染输出" },
+  verifying: { agent: "fidelity", label: "保真校验" },
+  repairing: { agent: "fidelity", label: "修复问题" },
+  finalizing: { agent: "renderer", label: "生成文件" },
+};
+
 export default function AgentPanel() {
-  const { isAgentPanelOpen, toggleAgentPanel, activeTask, setActiveTask } = useStore();
+  const { isAgentPanelOpen, toggleAgentPanel, activeTask, setActiveTask, addMessage } = useStore();
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const { data: agentStatesData } = trpc.task.getAgentStates.useQuery(
-    { taskId: activeTask?.id || "" },
-    { enabled: !!activeTask?.id && activeTask.status === "running", refetchInterval: 500 }
-  );
+  // Poll Python backend for real progress when pipeline is running
+  const pollPythonStatus = useCallback(async () => {
+    if (!activeTask?.pythonTaskId || activeTask.status !== "running") return;
 
-  useEffect(() => {
-    if (agentStatesData && activeTask) {
-      const updatedAgents = activeTask.agentStates.map((agent) => {
-        const backendState = agentStatesData.find((s) => s.agentType === agent.agentType);
-        if (backendState) {
-          return {
-            ...agent,
-            status: backendState.status as "pending" | "running" | "completed" | "error",
-            progress: backendState.progress,
-            logs: backendState.logs ? JSON.parse(backendState.logs) : [],
-          };
+    try {
+      const resp = await fetch(`/api/magazine/status/${activeTask.pythonTaskId}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+
+      const status = data.status as string;
+      const progress = Math.round((data.progress || 0) * 100);
+
+      // Determine which agents are done/running based on current status
+      const pipelineOrder = ["parser", "analyzer", "designer", "renderer", "fidelity"];
+      const statusIdx = Object.keys(STATUS_AGENT_MAP).indexOf(status);
+      const currentAgent = STATUS_AGENT_MAP[status]?.agent || "";
+
+      const updatedAgents = activeTask.agentStates.map((agent, idx) => {
+        const agentIdx = pipelineOrder.indexOf(agent.agentType);
+        const isPast = statusIdx > agentIdx || status === "completed";
+        const isCurrent = agent.agentType === currentAgent;
+
+        let agentStatus: "pending" | "running" | "completed" | "error";
+        let agentProgress: number;
+        let logs: string[];
+
+        if (status === "failed") {
+          agentStatus = isCurrent ? "error" : isPast ? "completed" : "pending";
+          agentProgress = isCurrent ? progress : isPast ? 100 : 0;
+          logs = isCurrent ? [data.message || "执行失败"] : [];
+        } else if (isPast) {
+          agentStatus = "completed";
+          agentProgress = 100;
+          logs = ["执行完成"];
+        } else if (isCurrent) {
+          agentStatus = "running";
+          agentProgress = progress;
+          logs = [STATUS_AGENT_MAP[status]?.label || "处理中..."];
+        } else {
+          agentStatus = "pending";
+          agentProgress = 0;
+          logs = [];
         }
-        return agent;
+
+        return { ...agent, status: agentStatus, progress: agentProgress, logs };
       });
-      const taskProgress = Math.round(updatedAgents.reduce((sum, a) => sum + a.progress, 0) / updatedAgents.length);
-      setActiveTask({ ...activeTask, agentStates: updatedAgents, progress: taskProgress });
+
+      const overallProgress = status === "completed" ? 100 : progress;
+
+      setActiveTask({
+        ...activeTask,
+        status: status === "completed" ? "completed" : status === "failed" ? "failed" : "running",
+        progress: overallProgress,
+        agentStates: updatedAgents,
+      });
+
+      // On completion, add assistant message
+      if (status === "completed" && activeTask.status !== "completed") {
+        addMessage({
+          id: `done-${Date.now()}`,
+          role: "assistant",
+          content: "文档重构完成！已生成杂志级精美的输出文件，点击下方按钮下载。",
+          createdAt: new Date(),
+        });
+      }
+      if (status === "failed" && activeTask.status !== "failed") {
+        addMessage({
+          id: `err-${Date.now()}`,
+          role: "assistant",
+          content: `处理失败: ${data.message || "未知错误"}`,
+          createdAt: new Date(),
+        });
+      }
+    } catch {
+      // Python backend might not be running yet
     }
-  }, [agentStatesData]);
+  }, [activeTask?.pythonTaskId, activeTask?.status]);
+
+  // Set up polling when task is running
+  useEffect(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+
+    if (activeTask?.pythonTaskId && activeTask.status === "running") {
+      pollPythonStatus();
+      pollRef.current = setInterval(pollPythonStatus, 2000);
+    }
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [activeTask?.pythonTaskId, activeTask?.status, pollPythonStatus]);
 
   const toggleExpand = (agentType: string) => {
     setExpandedAgents((prev) => {

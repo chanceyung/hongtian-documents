@@ -69,11 +69,18 @@ try:
 except ImportError:
     pass
 
+# 前端静态文件目录（相对于 backend_dir 的上一级）
+frontend_dir = os.path.join(os.path.dirname(backend_dir), 'desktop', 'resources', 'frontend')
+
 # 数据文件
 datas = [
     ('app/templates', 'app/templates'),
     ('app/*.py', 'app'),
 ]
+
+# 包含前端静态文件（如果存在）
+if os.path.isdir(frontend_dir):
+    datas.append((frontend_dir, 'app/static'))
 
 # 排除大型不必要的包
 excludes = [
