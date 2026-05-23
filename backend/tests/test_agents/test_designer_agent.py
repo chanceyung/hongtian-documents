@@ -6,15 +6,14 @@ from app.models import (
     UnifiedDocument, TextElement, ImageElement, MagazineEditPlan, EditAction, BoundingBox
 )
 from app.agents.designer_agent import DesignerAgent
+from tests.conftest import _make_mock_llm
 
 
 @pytest.fixture
 def designer_agent():
     """Create DesignerAgent instance for testing."""
-    with patch('instructor.from_openai') as mock_instructor:
-        mock_client = MagicMock()
-        mock_instructor.return_value = mock_client
-        return DesignerAgent(api_key="test-key", base_url="https://test.api/v4")
+    llm = _make_mock_llm()
+    return DesignerAgent(llm=llm)
 
 
 @pytest.fixture

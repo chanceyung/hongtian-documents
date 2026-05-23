@@ -17,6 +17,10 @@ from app.services.cost_tracker import CostTracker
 logger = get_logger(__name__)
 
 
+class LLMParseError(Exception):
+    """LLM 返回了无法解析的 JSON 响应"""
+
+
 class LLMClient:
 
     def __init__(
@@ -105,7 +109,7 @@ class LLMClient:
 
 def _extract_json_object(text: str) -> dict:
     if not text:
-        return {}
+        raise LLMParseError("LLM 返回空响应")
     text = text.strip()
     text = re.sub(r"^```\w*\n?", "", text)
     text = re.sub(r"\n?```$", "", text)
@@ -121,7 +125,7 @@ def _extract_json_object(text: str) -> dict:
         except json.JSONDecodeError:
             pass
     logger.warning("Failed to parse JSON object from LLM response", preview=text[:200])
-    return {}
+    raise LLMParseError(f"无法从 LLM 响应中提取 JSON 对象: {text[:100]}")
 
 
 def _extract_json_list(text: str) -> list[dict]:
@@ -144,4 +148,4 @@ def _extract_json_list(text: str) -> list[dict]:
         except json.JSONDecodeError:
             pass
     logger.warning("Failed to parse JSON list from LLM response", preview=text[:200])
-    return []
+    raise LLMParseError(f"无法从 LLM 响应中提取 JSON 数组: {text[:100]}")

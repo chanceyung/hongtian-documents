@@ -11,8 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.database import task_db
-from app.core.task_tracker import start_task, end_task, is_shutting_down
-import asyncio
+from app.core.task_tracker import start_task, end_task
 
 router = APIRouter(prefix="/magazine", tags=["Magazine"])
 
@@ -99,7 +98,6 @@ async def upload_document(
         task_id, session_id=session_id, source_file=str(file_path),
     )
 
-    background_tasks.add_task(_run_pipeline, task_id, file_path, session_id, skill_name=skill_name)
     return {"task_id": task_id, "status": "pending", "session_id": session_id}
 
 

@@ -31,7 +31,7 @@ class FidelityResult(BaseModel):
     passed: bool
     l1_score: float = 0.0
     l2_score: float = 0.0
-    l3_score: float = 0.3
+    l3_score: float = 0.0
     l4_required: bool = False
     issues: list[FidelityIssue] = []
 

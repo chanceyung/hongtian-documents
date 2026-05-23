@@ -6,15 +6,14 @@ from app.models import (
     UnifiedDocument, TextElement, ImageElement, MagazineEditPlan, EditAction, BoundingBox
 )
 from app.agents.fidelity_agent import FidelityAgent, FidelityResult
+from tests.conftest import _make_mock_llm
 
 
 @pytest.fixture
 def fidelity_agent():
     """Create FidelityAgent instance for testing."""
-    with patch('instructor.from_openai') as mock_instructor:
-        mock_client = MagicMock()
-        mock_instructor.return_value = mock_client
-        return FidelityAgent(api_key="test-key", threshold=0.95, base_url="https://test.api/v4")
+    llm = _make_mock_llm()
+    return FidelityAgent(llm=llm, threshold=0.95)
 
 
 @pytest.fixture
@@ -377,24 +376,20 @@ class TestFidelityAgentCheckSemantic:
 
     @pytest.mark.asyncio
     async def test_check_semantic_similarity_calculation(self, fidelity_agent, sample_document, sample_edit_plan):
-        """Test semantic similarity calculation using GLM-5."""
-        mock_result = MagicMock()
-        mock_result.comparisons = [{"id": "text-1", "similarity": 0.95}]
-        mock_result.overall_fidelity = 0.95
+        """Test semantic similarity calculation using LLM."""
+        fidelity_agent.llm.chat_json = AsyncMock(return_value={
+            "comparisons": [{"id": "text-1", "faithful": True, "reason": "same meaning"}],
+            "overall_fidelity": 0.95
+        })
+        score, issues = await fidelity_agent._check_semantic(sample_document, sample_edit_plan)
 
-        with patch.object(fidelity_agent.client.chat.completions, 'create', new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = mock_result
-            score, issues = await fidelity_agent._check_semantic(sample_document, sample_edit_plan)
-
-            # Should call GLM-5
-            mock_create.assert_called()
-            assert isinstance(score, float)
-            assert 0.0 <= score <= 1.0
+        fidelity_agent.llm.chat_json.assert_called()
+        assert isinstance(score, float)
+        assert 0.0 <= score <= 1.0
 
     @pytest.mark.asyncio
     async def test_check_semantic_low_similarity(self, fidelity_agent, sample_document):
         """Test handling of low semantic similarity."""
-        # Create plan with very different content
         from app.models.edit_actions import SlideEditPlan
         different_plan = MagazineEditPlan(
             document_id="test-doc",
@@ -410,16 +405,13 @@ class TestFidelityAgentCheckSemantic:
             ]
         )
 
-        mock_result = MagicMock()
-        mock_result.comparisons = [{"id": "text-1", "similarity": 0.3}]
-        mock_result.overall_fidelity = 0.3
+        fidelity_agent.llm.chat_json = AsyncMock(return_value={
+            "comparisons": [{"id": "text-1", "faithful": False, "reason": "different meaning"}],
+            "overall_fidelity": 0.3
+        })
+        score, issues = await fidelity_agent._check_semantic(sample_document, different_plan)
 
-        with patch.object(fidelity_agent.client.chat.completions, 'create', new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = mock_result
-            score, issues = await fidelity_agent._check_semantic(sample_document, different_plan)
-
-            # Should reflect low similarity
-            assert score <= 0.5
+        assert score <= 0.5
 
     @pytest.mark.asyncio
     async def test_check_semantic_empty_documents(self, fidelity_agent):
@@ -439,7 +431,6 @@ class TestFidelityAgentCheckSemantic:
 
         score, issues = await fidelity_agent._check_semantic(empty_doc, empty_plan)
 
-        # Should score 1 for empty
         assert score == 1.0
 
 
@@ -449,78 +440,57 @@ class TestFidelityAgentVerify:
     @pytest.mark.asyncio
     async def test_verify_comprehensive_score_calculation(self, fidelity_agent, sample_document, sample_edit_plan):
         """Test that verify calculates comprehensive score using weighted average."""
-        mock_result = MagicMock()
-        mock_result.comparisons = []
-        mock_result.overall_fidelity = 0.95
+        fidelity_agent.llm.chat_json = AsyncMock(return_value={
+            "comparisons": [], "overall_fidelity": 0.95
+        })
+        report = await fidelity_agent.verify(sample_document, sample_edit_plan)
 
-        with patch.object(fidelity_agent.client.chat.completions, 'create', new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = mock_result
-            report = await fidelity_agent.verify(sample_document, sample_edit_plan)
-
-            # Verify score calculation: L1*0.4 + L2*0.3 + L3*0.3
-            # L1 = fingerprint (1.0 for complete plan), L2 = linkage, L3 = semantic
-            expected_min_score = 0.4  # At minimum, if other checks fail
-            assert report.overall_score >= expected_min_score
-            assert report.overall_score <= 1.0
+        expected_min_score = 0.4
+        assert report.overall_score >= expected_min_score
+        assert report.overall_score <= 1.0
 
     @pytest.mark.asyncio
     async def test_verify_returns_fidelity_result(self, fidelity_agent, sample_document, sample_edit_plan):
         """Test that verify returns FidelityResult instance."""
-        mock_result = MagicMock()
-        mock_result.comparisons = []
-        mock_result.overall_fidelity = 0.95
+        fidelity_agent.llm.chat_json = AsyncMock(return_value={
+            "comparisons": [], "overall_fidelity": 0.95
+        })
+        report = await fidelity_agent.verify(sample_document, sample_edit_plan)
 
-        with patch.object(fidelity_agent.client.chat.completions, 'create', new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = mock_result
-            report = await fidelity_agent.verify(sample_document, sample_edit_plan)
-
-            assert isinstance(report, FidelityResult)
-            assert report.overall_score is not None
-            assert report.l1_score is not None
-            assert report.l2_score is not None
-            assert report.l3_score is not None
-            assert report.passed is not None
+        assert isinstance(report, FidelityResult)
+        assert report.overall_score is not None
+        assert report.l1_score is not None
+        assert report.l2_score is not None
+        assert report.l3_score is not None
+        assert report.passed is not None
 
     @pytest.mark.asyncio
     async def test_verify_with_low_fidelity(self, fidelity_agent, sample_document, incomplete_edit_plan):
         """Test verify with incomplete content (low fidelity)."""
-        mock_result = MagicMock()
-        mock_result.comparisons = []
-        mock_result.overall_fidelity = 0.95
+        fidelity_agent.llm.chat_json = AsyncMock(return_value={
+            "comparisons": [], "overall_fidelity": 0.95
+        })
+        report = await fidelity_agent.verify(sample_document, incomplete_edit_plan)
 
-        with patch.object(fidelity_agent.client.chat.completions, 'create', new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = mock_result
-            report = await fidelity_agent.verify(sample_document, incomplete_edit_plan)
-
-            # Fingerprint score should be low due to missing content
-            assert report.l1_score < 1.0
-            # Overall score should reflect this (but may be > 0.8 depending on other factors)
-            assert report.overall_score < 1.0
+        assert report.l1_score < 1.0
+        assert report.overall_score < 1.0
 
     @pytest.mark.asyncio
     async def test_verify_threshold_check(self, fidelity_agent, sample_document, sample_edit_plan):
         """Test that verify correctly determines if threshold is passed."""
-        mock_result = MagicMock()
-        mock_result.comparisons = []
-        mock_result.overall_fidelity = 0.95
+        fidelity_agent.llm.chat_json = AsyncMock(return_value={
+            "comparisons": [], "overall_fidelity": 0.95
+        })
+        report = await fidelity_agent.verify(sample_document, sample_edit_plan)
 
-        with patch.object(fidelity_agent.client.chat.completions, 'create', new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = mock_result
-            report = await fidelity_agent.verify(sample_document, sample_edit_plan)
-
-            # With complete content and good similarity, should pass threshold (0.95)
-            assert report.passed is not None
+        assert report.passed is not None
 
     @pytest.mark.asyncio
     async def test_verify_includes_repair_suggestions(self, fidelity_agent, sample_document, incomplete_edit_plan):
         """Test that verify includes suggestions for repair."""
-        mock_result = MagicMock()
-        mock_result.comparisons = []
-        mock_result.overall_fidelity = 0.95
+        fidelity_agent.llm.chat_json = AsyncMock(return_value={
+            "comparisons": [], "overall_fidelity": 0.95
+        })
+        report = await fidelity_agent.verify(sample_document, incomplete_edit_plan)
 
-        with patch.object(fidelity_agent.client.chat.completions, 'create', new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = mock_result
-            report = await fidelity_agent.verify(sample_document, incomplete_edit_plan)
-
-            # Should include repair suggestions in issues
-            assert len(report.issues) > 0
+        assert len(report.issues) > 0

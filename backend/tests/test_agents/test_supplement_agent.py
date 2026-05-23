@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.models.unified_document import UnifiedDocument, ImageElement, TextElement, BoundingBox, ContentAssetLink
 from app.models.edit_actions import MagazineEditPlan, EditAction, SlideEditPlan
 from app.agents.supplement_agent import SupplementAgent
+from tests.conftest import _make_mock_llm
 
 
 @pytest.fixture
@@ -23,8 +24,9 @@ def mock_settings():
 @pytest.fixture
 def supplement_agent(mock_settings):
     """Create SupplementAgent instance for testing."""
+    llm = _make_mock_llm()
     with patch('app.core.config.settings', mock_settings):
-        return SupplementAgent(session_id="test-session")
+        return SupplementAgent(llm=llm, session_id="test-session")
 
 
 @pytest.fixture
@@ -190,28 +192,20 @@ class TestSupplementAgentExtractKeywords:
     """Tests for _extract_keywords method."""
 
     @pytest.mark.asyncio
-    async def test_extract_keywords_calls_zhipu_client(self, supplement_agent):
-        """Test that keyword extraction calls ZhipuClient."""
-        mock_zhipu = MagicMock()
-        mock_zhipu_client = AsyncMock()
-        mock_zhipu_client.generate_search_keywords.return_value = ["business", "chart", "growth"]
-        mock_zhipu.ZhipuClient.return_value = mock_zhipu_client
+    async def test_extract_keywords_calls_llm(self, supplement_agent):
+        """Test that keyword extraction calls LLMClient."""
+        supplement_agent.llm.chat_json = AsyncMock(return_value=["business", "chart", "growth"])
+        keywords = await supplement_agent._extract_keywords("Business growth chart showing quarterly revenue")
 
-        with patch('app.services.zhipu_client.ZhipuClient', mock_zhipu.ZhipuClient):
-            keywords = await supplement_agent._extract_keywords("Business growth chart showing quarterly revenue")
-
-            assert keywords == "business chart growth"
+        assert keywords == "business chart growth"
 
     @pytest.mark.asyncio
     async def test_extract_keywords_fallback_on_error(self, supplement_agent):
         """Test fallback to first 5 words on error."""
-        mock_zhipu = MagicMock()
-        mock_zhipu.ZhipuClient.side_effect = Exception("API Error")
+        supplement_agent.llm.chat_json = AsyncMock(side_effect=Exception("API Error"))
+        keywords = await supplement_agent._extract_keywords("one two three four five six")
 
-        with patch('app.services.zhipu_client.ZhipuClient', mock_zhipu.ZhipuClient):
-            keywords = await supplement_agent._extract_keywords("one two three four five six")
-
-            assert keywords == "one two three four five"
+        assert keywords == "one two three four five"
 
 
 class TestSupplementAgentFindTextContext:

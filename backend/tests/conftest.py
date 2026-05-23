@@ -18,6 +18,21 @@ def event_loop():
     loop.close()
 
 
+def _make_mock_llm(chat_json_return=None, chat_json_list_return=None, chat_text_return=None):
+    """Create a mock LLMClient for testing."""
+    from app.services.llm_client import LLMClient
+    from app.services.cost_tracker import CostTracker
+
+    llm = LLMClient.__new__(LLMClient)
+    llm.model = "test-model"
+    llm.cost_tracker = CostTracker()
+    llm.chat_json = AsyncMock(return_value=chat_json_return if chat_json_return is not None else {})
+    llm.chat_json_list = AsyncMock(return_value=chat_json_list_return if chat_json_list_return is not None else [])
+    llm.chat_text = AsyncMock(return_value=chat_text_return if chat_text_return is not None else "")
+    llm.get_usage_summary = MagicMock(return_value={"total_cost": 0, "total_tokens": 0})
+    return llm
+
+
 @pytest.fixture
 def mock_glm_client():
     """Create mock GLM-5 API client."""

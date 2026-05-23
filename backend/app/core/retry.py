@@ -40,6 +40,10 @@ def _is_retryable(exc: Exception) -> bool:
     msg = str(exc).lower()
     if any(k in msg for k in ("rate_limit", "overload", "capacity", "too many requests")):
         return True
+    # JSON 解析失败可重试（LLM 可能返回格式不同的响应）
+    from app.services.llm_client import LLMParseError
+    if isinstance(exc, LLMParseError):
+        return True
     return False
 
 

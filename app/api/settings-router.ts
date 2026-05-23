@@ -21,6 +21,28 @@ export const settingsRouter = createRouter({
     const db = await getDb();
     const [existing] = await db.select().from(userSettings)
       .where(eq(userSettings.userId, ctx.user.id));
+
+    let pythonSyncOk = true;
+
+    const syncToPython = async () => {
+      if (!input.zhipuApiKey) return;
+      try {
+        const pythonPort = process.env.PYTHON_BACKEND_PORT || "8000";
+        const resp = await fetch(`http://127.0.0.1:${pythonPort}/api/api-keys/save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: "desktop",
+            zhipu_api_key: input.zhipuApiKey,
+            zhipu_model: input.zhipuModel,
+          }),
+        });
+        if (!resp.ok) pythonSyncOk = false;
+      } catch {
+        pythonSyncOk = false;
+      }
+    };
+
     if (existing) {
       await db.update(userSettings).set({
         zhipuApiKey: input.zhipuApiKey,
@@ -31,26 +53,8 @@ export const settingsRouter = createRouter({
       }).where(eq(userSettings.id, existing.id));
       const [updated] = await db.select().from(userSettings).where(eq(userSettings.id, existing.id));
       saveDatabase();
-
-      // Sync API key to Python backend
-      if (input.zhipuApiKey) {
-        try {
-          const pythonPort = process.env.PYTHON_BACKEND_PORT || "8000";
-          await fetch(`http://127.0.0.1:${pythonPort}/api/api-keys/save`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              session_id: "desktop",
-              zhipu_api_key: input.zhipuApiKey,
-              zhipu_model: input.zhipuModel,
-            }),
-          });
-        } catch (err) {
-          console.error("[Settings] Failed to sync API key to Python backend:", err);
-        }
-      }
-
-      return updated;
+      await syncToPython();
+      return { ...updated, _pythonSyncOk: pythonSyncOk };
     } else {
       await db.insert(userSettings).values({
         userId: ctx.user.id,
@@ -62,26 +66,8 @@ export const settingsRouter = createRouter({
       const rows = await db.select().from(userSettings)
         .where(eq(userSettings.userId, ctx.user.id)).limit(1);
       saveDatabase();
-
-      // Sync API key to Python backend
-      if (input.zhipuApiKey) {
-        try {
-          const pythonPort = process.env.PYTHON_BACKEND_PORT || "8000";
-          await fetch(`http://127.0.0.1:${pythonPort}/api/api-keys/save`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              session_id: "desktop",
-              zhipu_api_key: input.zhipuApiKey,
-              zhipu_model: input.zhipuModel,
-            }),
-          });
-        } catch (err) {
-          console.error("[Settings] Failed to sync API key to Python backend:", err);
-        }
-      }
-
-      return rows[0];
+      await syncToPython();
+      return { ...rows[0], _pythonSyncOk: pythonSyncOk };
     }
   }),
 
