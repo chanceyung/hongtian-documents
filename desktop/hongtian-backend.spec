@@ -4,94 +4,73 @@
 
 用法:
   cd backend
-  pyinstaller ../desktop/hongtian-backend.spec
-
-输出:
-  dist/hongtian-backend/  — 包含 Python 运行时 + app + 依赖
+  pyinstaller ../desktop/hongtian-backend.spec --distpath ../desktop/resources/python --workpath ../desktop/build/backend-build --clean --noconfirm
 """
-
 import sys
 import os
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
 
-# 项目根路径
-backend_dir = os.path.abspath('.')
+# SPECPATH 由 PyInstaller 注入，指向 spec 文件所在目录
+backend_dir = os.path.normpath(os.path.join(SPECPATH, '..', 'backend'))
 
-# 收集所有隐式依赖
 hidden_imports = [
-    'uvicorn.logging',
-    'uvicorn.loops',
-    'uvicorn.loops.auto',
-    'uvicorn.protocols',
-    'uvicorn.protocols.http',
-    'uvicorn.protocols.http.auto',
-    'uvicorn.protocols.websockets',
-    'uvicorn.protocols.websockets.auto',
-    'uvicorn.lifespan',
-    'uvicorn.lifespan.on',
-    'aiosqlite',
-    'pydantic',
-    'pydantic_settings',
-    'fastapi',
-    'starlette',
-    'starlette.responses',
-    'starlette.routing',
-    'starlette.middleware',
-    'starlette.middleware.cors',
-    'anyio',
-    'sniffio',
-    'httpx',
-    'httpcore',
-    'instructor',
-    'openai',
-    'tenacity',
-    'structlog',
-    'bs4',
-    'lxml',
-    'pptx',
-    'docx',
-    'openpyxl',
-    'fitz',
-    'PIL',
-    'markdown_it',
-    'PyPDF2',
-    'cryptography',
-    'cryptography.fernet',
+    # uvicorn
+    'uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto',
+    'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto',
+    'uvicorn.protocols.websockets', 'uvicorn.protocols.websockets.auto',
+    'uvicorn.lifespan', 'uvicorn.lifespan.on',
+    # web framework
+    'fastapi', 'starlette', 'starlette.responses', 'starlette.routing',
+    'starlette.middleware', 'starlette.middleware.cors',
+    # data
+    'aiosqlite', 'pydantic', 'pydantic_settings',
+    'zstandard', 'multidict', 'frozenlist',
+    # http
+    'httpx', 'httpcore', 'anyio', 'sniffio', 'h11',
+    # llm
+    'openai', 'instructor', 'tenacity', 'jinja2',
+    # parsing
+    'bs4', 'lxml', 'lxml.etree', 'lxml._elementpath',
+    'pptx', 'docx', 'openpyxl', 'fitz', 'PIL',
+    'markdown_it', 'PyPDF2',
+    # crypto
+    'cryptography', 'cryptography.fernet',
     'cryptography.hazmat.primitives.kdf.pbkdf2',
+    # logging & monitoring
+    'structlog', 'prometheus_client',
+    # pkg_resources namespace support
+    'pkg_resources', 'jaraco.text', 'jaraco.functools',
+    'jaraco.classes', 'jaraco.context',
 ]
 
-# WeasyPrint 和 Playwright 是可选的，只在存在时包含
-try:
-    import weasyprint
-    hidden_imports.extend(collect_submodules('weasyprint'))
-except ImportError:
-    pass
+# 动态收集 langgraph 相关子模块
+for pkg in ['langgraph', 'langgraph.graph', 'langgraph.constants',
+            'langgraph.pregel', 'langgraph.types']:
+    try:
+        hidden_imports.extend(collect_submodules(pkg))
+    except Exception:
+        hidden_imports.append(pkg)
 
-# 前端静态文件目录（相对于 backend_dir 的上一级）
+# 前端静态文件（仅 Electron 桌面模式用）
 frontend_dir = os.path.join(os.path.dirname(backend_dir), 'desktop', 'resources', 'frontend')
 
-# 数据文件
 datas = [
-    ('app/templates', 'app/templates'),
-    ('app/*.py', 'app'),
+    (os.path.join(backend_dir, 'app', 'templates'), 'app/templates'),
 ]
-
-# 包含前端静态文件（如果存在）
 if os.path.isdir(frontend_dir):
     datas.append((frontend_dir, 'app/static'))
 
-# 排除大型不必要的包
 excludes = [
     'torch', 'transformers', 'scipy', 'cv2', 'numba', 'llvmlite',
     'sympy', 'skimage', 'pandas', 'matplotlib', 'tkinter', 'tcl',
-    'test', 'unittest', 'setuptools', 'pip', 'wheel',
-    'docling', 'docling_parse',  # 太大，降级到 PyMuPDF
+    'test', 'unittest', 'docling', 'docling_parse',
+    'playwright', 'weasyprint',
 ]
 
 a = Analysis(
-    ['app/main.py'],
+    [os.path.join(backend_dir, 'app', 'main.py')],
     pathex=[backend_dir],
     binaries=[],
     datas=datas,
@@ -106,9 +85,7 @@ a = Analysis(
     noarchive=False,
 )
 
-# 排除 torch 等大型二进制文件
 def remove_large_binaries(toc_list, patterns):
-    """Remove binaries matching patterns to reduce size."""
     filtered = []
     for item in toc_list:
         skip = False

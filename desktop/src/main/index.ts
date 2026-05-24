@@ -144,10 +144,7 @@ async function startPythonBackend(): Promise<void> {
   const resPath = getResourcesPath()
   const dataDir = getUserDataDir()
 
-  // In packaged app, look for embedded Python; in dev, use system Python
   const isPackaged = app.isPackaged
-  const pythonExe = platform() === 'win32' ? 'python.exe' : 'python3'
-  const systemPython = platform() === 'win32' ? 'python' : 'python3'
 
   let pythonCmd: string
   let pythonCwd: string
@@ -155,13 +152,14 @@ async function startPythonBackend(): Promise<void> {
 
   if (isPackaged) {
     const pythonDir = join(resPath, 'resources', 'python', 'hongtian-backend')
-    pythonCmd = join(pythonDir, pythonExe)
+    const exeName = platform() === 'win32' ? 'hongtian-backend.exe' : 'hongtian-backend'
+    pythonCmd = join(pythonDir, exeName)
     pythonCwd = pythonDir
-    pythonArgs = ['desktop_main.py']
+    pythonArgs = []
   } else {
-    // Dev mode: use system Python, point to backend/ directory
+    const systemPython = platform() === 'win32' ? 'python' : 'python3'
     pythonCmd = systemPython
-    pythonCwd = join(resPath, 'backend')
+    pythonCwd = join(resPath, '..', 'backend')
     pythonArgs = ['desktop_main.py']
   }
 
@@ -169,7 +167,12 @@ async function startPythonBackend(): Promise<void> {
     ...process.env as Record<string, string>,
     DESKTOP_MODE: 'true',
     PORT: String(pythonPort),
+    NODE_SERVER_PORT: String(serverPort),
     PYTHONUNBUFFERED: '1',
+    DATABASE_URL: `sqlite:///${join(dataDir, 'magazine.db').replace(/\\/g, '/')}`,
+    UPLOAD_DIR: join(dataDir, 'uploads'),
+    OUTPUT_DIR: join(dataDir, 'output'),
+    ASSETS_DIR: join(dataDir, 'assets'),
   }
   Object.keys(env).forEach(k => { if (env[k] === undefined) delete env[k] })
 
@@ -291,10 +294,18 @@ app.whenReady().then(async () => {
     registerIpcHandlers()
     Menu.setApplicationMenu(null)
     await startServer()
+    let pythonReady = false
     try {
       await startPythonBackend()
+      pythonReady = true
     } catch (err) {
       console.error('[Main] Python backend failed (non-fatal):', err)
+      dialog.showMessageBoxSync({
+        type: 'warning',
+        title: '后端启动失败',
+        message: '文档处理引擎启动失败，文件上传功能暂时不可用。',
+        detail: err instanceof Error ? err.message : String(err),
+      })
     }
     createWindow()
   } catch (err) {

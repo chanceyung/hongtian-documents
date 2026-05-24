@@ -79,6 +79,24 @@ app.all("/api/magazine/*", async (c) => {
   }
 });
 
+app.get("/api/internal/settings", async (c) => {
+  try {
+    const { getDb } = await import("./queries/connection");
+    const { userSettings } = await import("@db/schema");
+    const { eq } = await import("drizzle-orm");
+    const { env } = await import("./lib/env");
+    const db = await getDb();
+    const [row] = await db.select().from(userSettings)
+      .where(eq(userSettings.userId, env.desktopUserId));
+    return c.json({
+      apiKey: row?.zhipuApiKey || "",
+      model: row?.zhipuModel || "glm-4-flash",
+    });
+  } catch (err: any) {
+    return c.json({ apiKey: "", model: "glm-4-flash", error: err.message }, 500);
+  }
+});
+
 app.all("/api/api-keys/*", async (c) => {
   try {
     return await proxyToPython(c);

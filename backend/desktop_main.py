@@ -11,16 +11,6 @@ if getattr(sys, 'frozen', False):
 else:
     application_path = os.path.dirname(os.path.abspath(__file__))
 
-import webbrowser
-import threading
-import time
-
-def open_browser(port):
-    time.sleep(2)
-    url = f"http://127.0.0.1:{port}"
-    print(f"\n  浏览器即将打开: {url}\n")
-    webbrowser.open(url)
-
 def main():
     import uvicorn
     from app.core.config import settings
@@ -32,7 +22,6 @@ def main():
     print(f"  后端地址: http://127.0.0.1:{port}")
     print(f"  按 Ctrl+C 退出")
     print("=" * 50)
-    threading.Thread(target=open_browser, args=(port,), daemon=True).start()
     uvicorn.run(
         app,
         host="127.0.0.1",

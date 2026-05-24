@@ -105,15 +105,41 @@ def _track_phase(phase_name: str):
 
 
 async def _get_api_key(session_id: str) -> str:
-    from app.api.router import decrypt_key
+    import os
+    from app.api.router import decrypt_key, encrypt_key
     from app.core.redis import redis_client
 
     redis = redis_client.client
+
+    # 1. Try KV store (fast path — from sync or cache)
     encrypted = await redis.hget(f"api_keys:{session_id}", "zhipu_key")
-    if not encrypted:
-        logger.warning("未配置智谱 API Key", session_id=session_id)
-        raise ValueError("未配置智谱 API Key，请先在设置中配置")
-    return decrypt_key(encrypted)
+    if encrypted:
+        return decrypt_key(encrypted)
+
+    # 2. Fallback: query Node.js server for API key
+    node_port = os.environ.get("NODE_SERVER_PORT")
+    if node_port:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=5) as client:
+                resp = await client.get(f"http://127.0.0.1:{node_port}/api/internal/settings")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    api_key = data.get("apiKey", "")
+                    if api_key:
+                        model = data.get("model", "glm-4-flash")
+                        await redis.hset(f"api_keys:{session_id}", mapping={
+                            "zhipu_key": encrypt_key(api_key),
+                            "zhipu_model": model,
+                        })
+                        await redis.expire(f"api_keys:{session_id}", 86400)
+                        logger.info("api_key.synced_from_node", session_id=session_id)
+                        return api_key
+        except Exception as e:
+            logger.warning("api_key.node_fallback_failed", error=str(e)[:200])
+
+    logger.warning("api_key.not_found", session_id=session_id)
+    raise ValueError("未配置智谱 API Key，请先在设置中配置")
 
 
 def _skill_overrides(skill: SkillDefinition | None) -> dict:
