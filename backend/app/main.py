@@ -2,6 +2,7 @@
 import asyncio
 import os
 import shutil
+import sys
 import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,12 +18,22 @@ from app.core.redis import redis_client, DESKTOP_MODE
 from app.core.task_tracker import get_active_count, set_shutting_down
 from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 
+# PyInstaller 打包模式下设置模板目录
+if getattr(sys, 'frozen', False):
+    _meipass = sys._MEIPASS
+    os.environ.setdefault("MAGAZINE_TEMPLATES_DIR", os.path.join(_meipass, "app", "templates"))
+
 setup_logging(debug=settings.DEBUG)
 logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 确保数据目录存在
+    for dir_key in ("UPLOAD_DIR", "OUTPUT_DIR", "ASSETS_DIR"):
+        dir_path = Path(getattr(settings, dir_key))
+        dir_path.mkdir(parents=True, exist_ok=True)
+
     await task_db.initialize()
     await redis_client.initialize()
 

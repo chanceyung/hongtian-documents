@@ -4,6 +4,9 @@ release/
 build/
 resources/frontend/
 resources/python/
+resources/python2/
+resources/app/
+resources/node/
 *.pyc
 __pycache__/
 .env

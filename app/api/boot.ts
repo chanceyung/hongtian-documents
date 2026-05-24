@@ -3,7 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./router";
 import { createContext } from "./context";
-import { env } from "./lib/env";
+import { env as envConfig } from "./lib/env";
 import { serve } from "@hono/node-server";
 import fs from "fs";
 import path from "path";
@@ -19,16 +19,21 @@ const MIME: Record<string, string> = {
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   ".md": "text/markdown",
+  ".wasm": "application/wasm",
 };
-
-const PYTHON_PORT = parseInt(process.env.PYTHON_BACKEND_PORT || "8000");
 
 const app = new Hono();
 
 app.use(bodyLimit({ maxSize: 100 * 1024 * 1024 }));
 
+/** 动态获取 Python 后端端口，支持运行时变化 */
+function getPythonPort(): number {
+  return parseInt(process.env.PYTHON_BACKEND_PORT || "8000");
+}
+
 async function proxyToPython(c: any): Promise<Response> {
-  const target = `http://127.0.0.1:${PYTHON_PORT}${c.req.path}`;
+  const pythonPort = getPythonPort();
+  const target = `http://127.0.0.1:${pythonPort}${c.req.path}`;
   const method = c.req.method;
   const headers: Record<string, string> = {};
   c.req.raw.headers.forEach((v: string, k: string) => {
@@ -43,7 +48,7 @@ async function proxyToPython(c: any): Promise<Response> {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
+  const timeout = setTimeout(() => controller.abort(), 60_000);
   try {
     const resp = await fetch(target, { method, headers, body, signal: controller.signal });
     clearTimeout(timeout);
@@ -79,15 +84,18 @@ app.all("/api/magazine/*", async (c) => {
   }
 });
 
+/**
+ * 供 Python 后端回调查询用户 API Key 设置。
+ * Python 后端通过 NODE_SERVER_PORT 环境变量找到本服务。
+ */
 app.get("/api/internal/settings", async (c) => {
   try {
     const { getDb } = await import("./queries/connection");
     const { userSettings } = await import("@db/schema");
     const { eq } = await import("drizzle-orm");
-    const { env } = await import("./lib/env");
     const db = await getDb();
     const [row] = await db.select().from(userSettings)
-      .where(eq(userSettings.userId, env.desktopUserId));
+      .where(eq(userSettings.userId, envConfig.desktopUserId));
     return c.json({
       apiKey: row?.zhipuApiKey || "",
       model: row?.zhipuModel || "glm-4-flash",
@@ -115,6 +123,7 @@ app.use("/api/trpc/*", async (c) => {
     createContext,
   });
 });
+
 app.all("/api/*", (c) => {
   if (c.req.path.startsWith("/api/magazine") || c.req.path.startsWith("/api/api-keys") || c.req.path.startsWith("/api/trpc")) {
     return c.notFound();
@@ -122,18 +131,35 @@ app.all("/api/*", (c) => {
   return c.json({ error: "Not Found" }, 404);
 });
 
-if (env.isProduction) {
+if (envConfig.isProduction) {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const publicDir = path.join(__dirname, "public");
 
-  const uploadDir = env.isDesktop
+  // 数据目录：桌面模式用 DATABASE_PATH 的父目录，Web 模式用 ./uploads
+  const uploadDir = envConfig.isDesktop
     ? path.join(dirname(process.env.DATABASE_PATH || "./data/hongtian.db"), "uploads")
     : "./uploads";
+
+  // Python 后端输出目录（桌面模式下与 uploadDir 同级）
+  const outputDir = envConfig.isDesktop
+    ? path.join(dirname(process.env.DATABASE_PATH || "./data/hongtian.db"), "output")
+    : "./data/output";
 
   app.use("/uploads/*", async (c) => {
     const rel = c.req.path.slice("/uploads/".length);
     if (!rel || rel.includes("..")) return c.notFound();
     const fp = path.join(uploadDir, rel);
+    if (!fs.existsSync(fp)) return c.notFound();
+    const ext = path.extname(fp);
+    c.header("Content-Type", MIME[ext] || "application/octet-stream");
+    return c.body(fs.readFileSync(fp));
+  });
+
+  // 代理 Python 后端的输出文件下载
+  app.use("/output/*", async (c) => {
+    const rel = c.req.path.slice("/output/".length);
+    if (!rel || rel.includes("..")) return c.notFound();
+    const fp = path.join(outputDir, rel);
     if (!fs.existsSync(fp)) return c.notFound();
     const ext = path.extname(fp);
     c.header("Content-Type", MIME[ext] || "application/octet-stream");

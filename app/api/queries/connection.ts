@@ -20,7 +20,9 @@ export async function getDb() {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const wasmPaths = [
     path.join(__dirname, "sql-wasm.wasm"),
+    path.join(__dirname, "..", "sql-wasm.wasm"),
     path.join(__dirname, "node_modules", "sql.js", "dist", "sql-wasm.wasm"),
+    path.join(__dirname, "..", "app-server", "sql-wasm.wasm"),
   ];
   let wasmPath: string | undefined;
   for (const p of wasmPaths) {

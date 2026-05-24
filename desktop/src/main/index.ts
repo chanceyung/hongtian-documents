@@ -32,9 +32,14 @@ function findFreePort(startPort: number): Promise<number> {
   })
 }
 
-function getResourcesPath(): string {
-  if (app.isPackaged) return join(process.resourcesPath, 'app')
-  return resolve(__dirname, '..', '..')
+/**
+ * 获取 extraResources 根路径：
+ * - 打包后：process.resourcesPath（python/node/frontend 都在这里）
+ * - 开发时：desktop/resources/
+ */
+function getResPath(): string {
+  if (app.isPackaged) return process.resourcesPath
+  return resolve(__dirname, '..', '..', 'resources')
 }
 
 function getUserDataDir(): string {
@@ -62,12 +67,36 @@ function registerIpcHandlers(): void {
   ipcMain.handle('window:close', () => mainWindow?.close())
 }
 
+/**
+ * 启动 Node.js 前端服务器。
+ *
+ * 路径约定（electron-builder extraResources）：
+ *   打包后 resources/app/ → process.resourcesPath/app/
+ *   内含 dist/boot.js + dist/public/（前端 bundle）
+ *
+ * 开发模式下直接从 resources/app-server/ 启动。
+ */
 async function startServer(): Promise<void> {
   serverPort = await findFreePort(3000)
 
-  const resPath = getResourcesPath()
+  const resPath = getResPath()
   const dataDir = getUserDataDir()
-  const bootScript = join(resPath, 'resources', 'app-server', 'boot.mjs')
+
+  // 打包后：boot.js 在 extraResources "app" 里
+  // 开发时：boot.mjs 在 resources/app-server/ 里
+  let bootScript: string
+  let serverCwd: string
+  let nodeExe: string
+
+  if (app.isPackaged) {
+    bootScript = join(resPath, 'app', 'dist', 'boot.js')
+    serverCwd = join(resPath, 'app', 'dist')
+    nodeExe = join(resPath, 'node', 'node.exe')
+  } else {
+    bootScript = join(resPath, 'app-server', 'boot.mjs')
+    serverCwd = join(resPath, 'app-server')
+    nodeExe = 'node'
+  }
 
   if (!existsSync(bootScript)) {
     throw new Error(`启动脚本不存在: ${bootScript}`)
@@ -87,15 +116,8 @@ async function startServer(): Promise<void> {
   console.log(`[Main] Boot: ${bootScript}`)
   console.log(`[Main] DB: ${env.DATABASE_PATH}`)
 
-  // 用内嵌的 node.exe（打包模式）或系统 Node（开发模式）
-  let nodeExe: string
-  if (app.isPackaged) {
-    nodeExe = join(resPath, 'resources', 'node', 'node.exe')
-  } else {
-    nodeExe = 'node'
-  }
   serverProcess = spawn(nodeExe, [bootScript], {
-    cwd: join(resPath, 'resources', 'app-server'),
+    cwd: serverCwd,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -138,20 +160,25 @@ async function stopServer(): Promise<void> {
   })
 }
 
+/**
+ * 启动 Python 后端。
+ *
+ * 路径约定（electron-builder extraResources）：
+ *   打包后：process.resourcesPath/python/hongtian-backend/hongtian-backend.exe
+ *   开发时：系统 python + backend/desktop_main.py
+ */
 async function startPythonBackend(): Promise<void> {
   pythonPort = await findFreePort(8000)
 
-  const resPath = getResourcesPath()
+  const resPath = getResPath()
   const dataDir = getUserDataDir()
-
-  const isPackaged = app.isPackaged
 
   let pythonCmd: string
   let pythonCwd: string
   let pythonArgs: string[]
 
-  if (isPackaged) {
-    const pythonDir = join(resPath, 'resources', 'python', 'hongtian-backend')
+  if (app.isPackaged) {
+    const pythonDir = join(resPath, 'python', 'hongtian-backend')
     const exeName = platform() === 'win32' ? 'hongtian-backend.exe' : 'hongtian-backend'
     pythonCmd = join(pythonDir, exeName)
     pythonCwd = pythonDir
@@ -159,8 +186,12 @@ async function startPythonBackend(): Promise<void> {
   } else {
     const systemPython = platform() === 'win32' ? 'python' : 'python3'
     pythonCmd = systemPython
-    pythonCwd = join(resPath, '..', 'backend')
+    pythonCwd = resolve(__dirname, '..', '..', '..', 'backend')
     pythonArgs = ['desktop_main.py']
+  }
+
+  if (app.isPackaged && !existsSync(pythonCmd)) {
+    throw new Error(`Python 后端可执行文件不存在: ${pythonCmd}`)
   }
 
   const env: Record<string, string | undefined> = {
@@ -262,42 +293,13 @@ function createWindow(): void {
   })
 }
 
-function createMenu(): void {
-  const template: Electron.MenuItemConstructorOptions[] = [
-    { label: '文件', submenu: [
-      { label: '打开文件...', accelerator: 'CmdOrCtrl+O', click: () => mainWindow?.webContents.send('menu:open-file') },
-      { type: 'separator' },
-      { label: '退出', accelerator: 'CmdOrCtrl+Q', role: 'quit' },
-    ]},
-    { label: '编辑', role: 'editMenu' },
-    { label: '视图', submenu: [
-      { role: 'reload' }, { role: 'forceReload' }, { role: 'toggleDevTools' },
-      { type: 'separator' },
-      { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
-      { type: 'separator' },
-      { role: 'togglefullscreen' },
-    ]},
-    { label: '帮助', submenu: [{
-      label: '关于弘天文档',
-      click: () => { dialog.showMessageBoxSync(mainWindow!, {
-        type: 'info', title: '关于弘天文档',
-        message: `弘天文档 v${app.getVersion()}`,
-        detail: '杂志级文档重构智能体\n将客户文档转化为杂志品质的 PDF / PPTX',
-      })},
-    }]},
-  ]
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
-}
-
 app.whenReady().then(async () => {
   try {
     registerIpcHandlers()
     Menu.setApplicationMenu(null)
     await startServer()
-    let pythonReady = false
     try {
       await startPythonBackend()
-      pythonReady = true
     } catch (err) {
       console.error('[Main] Python backend failed (non-fatal):', err)
       dialog.showMessageBoxSync({

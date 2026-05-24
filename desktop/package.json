@@ -46,6 +46,11 @@
     ],
     "extraResources": [
       {
+        "from": "resources/app",
+        "to": "app",
+        "filter": ["**/*"]
+      },
+      {
         "from": "resources/python",
         "to": "python",
         "filter": [
