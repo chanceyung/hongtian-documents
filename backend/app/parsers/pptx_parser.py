@@ -12,6 +12,7 @@ from app.models.unified_document import (
     ImageElement,
     TableElement,
     BoundingBox,
+    PageLayout,
 )
 
 
@@ -26,8 +27,14 @@ class PptxParser:
         texts: list[TextElement] = []
         images: list[ImageElement] = []
         tables: list[TableElement] = []
+        page_layouts: list[PageLayout] = []
+
+        slide_width = prs.slide_width
+        slide_height = prs.slide_height
 
         for slide_idx, slide in enumerate(prs.slides):
+            layout_info = self._extract_layout(slide, slide_idx, slide_width, slide_height)
+
             for shape in slide.shapes:
                 try:
                     bbox = BoundingBox(
@@ -46,6 +53,15 @@ class PptxParser:
                 except Exception as e:
                     warnings.append(f"Slide {slide_idx} Shape {shape.shape_id}: {e}")
 
+            # Build visual hierarchy from sorted shapes (by area, descending)
+            sorted_ids = sorted(
+                [s for s in slide.shapes],
+                key=lambda s: s.width * s.height,
+                reverse=True,
+            )
+            layout_info.visual_hierarchy = [f"s{slide_idx}_sh{s.shape_id}" for s in sorted_ids[:10]]
+            page_layouts.append(layout_info)
+
         return UnifiedDocument(
             source_file=str(path),
             source_format="pptx",
@@ -55,6 +71,7 @@ class PptxParser:
             images=images,
             tables=tables,
             parse_warnings=warnings,
+            page_layouts=page_layouts,
         )
 
     def _parse_text(self, shape, slide_idx: int, bbox: BoundingBox) -> list[TextElement]:
@@ -68,6 +85,18 @@ class PptxParser:
             if paragraph.level is not None and paragraph.level > 0:
                 level = paragraph.level
 
+            original_font = None
+            original_size = None
+            original_color = None
+            if paragraph.runs:
+                run = paragraph.runs[0]
+                if run.font.name:
+                    original_font = run.font.name
+                if run.font.size:
+                    original_size = run.font.size.pt
+                if run.font.color and run.font.color.rgb:
+                    original_color = f"#{run.font.color.rgb}"
+
             elements.append(TextElement(
                 id=f"s{slide_idx}_sh{shape.shape_id}_p{para_idx}",
                 content=text,
@@ -75,6 +104,9 @@ class PptxParser:
                 bbox=bbox,
                 level=level,
                 fingerprint=hashlib.md5(text.encode()).hexdigest(),
+                original_font=original_font,
+                original_size=original_size,
+                original_color=original_color,
             ))
         return elements
 
@@ -145,3 +177,29 @@ class PptxParser:
             )]
         except Exception:
             return []
+
+    def _extract_layout(self, slide, slide_idx: int, slide_width: int, slide_height: int) -> PageLayout:
+        layout_type = "unknown"
+        try:
+            layout_name = slide.slide_layout.name.lower() if slide.slide_layout else ""
+            if "title" in layout_name or "cover" in layout_name:
+                layout_type = "cover"
+            elif "two" in layout_name or "column" in layout_name:
+                layout_type = "two_column"
+            elif "blank" in layout_name:
+                layout_type = "full_text"
+            elif "content" in layout_name:
+                layout_type = "text_image"
+        except Exception:
+            pass
+
+        shape_area = sum(s.width * s.height for s in slide.shapes) if slide.shapes else 0
+        total_area = slide_width * slide_height if slide_width and slide_height else 1
+        whitespace_ratio = max(0.0, 1.0 - shape_area / total_area) if total_area > 0 else 0.0
+
+        return PageLayout(
+            page_number=slide_idx,
+            layout_type=layout_type,
+            whitespace_ratio=round(whitespace_ratio, 3),
+            original_structure={"layout_name": getattr(slide.slide_layout, "name", "")},
+        )

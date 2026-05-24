@@ -61,7 +61,20 @@ desktop/resources/app-server/boot.mjs
 desktop/resources/app-server/sql-wasm.wasm
 desktop/resources/app-server/public/
 desktop/release/
+desktop/release2/
+desktop/release3/
 desktop/dist/
+
+# AI 工具配置
+.claude/
+.cursor/
+.gemini/
+.kiro/
+.opencode.json
+.qoder/
+.mcp.json
 
 # PyInstaller
 *.spec
+# Added by code-review-graph
+.code-review-graph/

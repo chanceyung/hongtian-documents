@@ -10,7 +10,7 @@
 - **项目名称**: 弘天文档 (HongTian Docs)
 - **所属组织**: 弘天 AI (HongTian AI)
 - **项目定位**: 杂志级文档重构智能体，将客户文档（PPTX/PDF/Word/Excel/Markdown）转化为杂志品质的 PDF 或 PPTX
-- **架构版本**: V4 — 基于 Presenton + PPTAgent + PPT Master 三项目集成
+- **架构版本**: V2 — 生产级任务落地架构（重构中，受 REFACTORING_RULES.md 约束）
 
 ---
 
@@ -42,22 +42,33 @@
 2. 结构关键词（标题、说明文字）
 3. 语义关联（GLM-5 分析）
 
-### 3.3 保真校验四层流程（必须执行）
+### 3.3 保真与质量双重校验流程（必须执行）
 - **L1 指纹完整性**: 所有原始文本片段的哈希值必须在校验集中
 - **L2 图文关联**: 每张原始图片必须关联到输出中的对应位置
 - **L3 语义保真**: GLM-5 对比原文与输出，相似度 ≥ 0.95
+- **V1 文字可读性**: 无溢出、截断、乱码、遮挡
+- **V2 图片清晰度**: 无模糊、拉伸、失真
+- **V3 布局合理性**: 间距、对齐、层级符合杂志标准
+- **V4 Logo 规范性**: 弘天品牌合规（颜色/位置/大小）
 - **L4 人工确认**: 前端展示对比报告，用户确认后才算完成
 
 ---
 
 ## 四、架构约束
 
-### 4.1 五智能体架构（不可更改执行顺序）
+### 4.1 八智能体架构（不可更改执行顺序）
+
+> ⚠️ 重构期间以 REFACTORING_RULES.md 第 1.1 条为准
+
 ```
-Parser Agent → Analyzer Agent → Designer Agent → Supplement Agent → Renderer Agent → Fidelity Agent
+Planner → Parser → [Gate1] → Analyzer → [Gate2]
+  → [Designer ∥ Supplement] → [Join] → Renderer → [Gate3]
+  → Quality(内容保真L1-L3 + 视觉质量V1-V4) → Assembly → [L4人工确认]
 ```
 - 顺序不可颠倒，不可跳过任何阶段
-- Fidelity Agent 校验不通过时，回退到 Designer Agent 重新设计（最多重试 `MAX_REPAIR_ATTEMPTS` 次）
+- 3 个 Validation Gate 不可跳过
+- 5 个检查点（CP0-CP4）必须自动保存
+- Quality Agent 校验不通过时，精准修复失败页面（最多重试 `MAX_REPAIR_ATTEMPTS` 次）
 
 ### 4.2 数据模型 — 必须使用统一模型
 所有智能体之间的数据传递必须通过以下模型（定义在 `backend/app/models/`）：
@@ -196,7 +207,7 @@ def test_<功能>_<场景>_<预期结果>():
 类型(范围): 简要描述
 
 类型: feat | fix | refactor | docs | test | chore | style
-范围: parser | analyzer | designer | renderer | fidelity | supplement | api | ui | infra
+范围: planner | parser | analyzer | designer | renderer | quality | supplement | assembly | api | ui | infra | checkpoint
 ```
 
 ### 10.3 PR 要求
@@ -211,6 +222,9 @@ def test_<功能>_<场景>_<预期结果>():
 
 | 文件 | 用途 |
 |------|------|
+| `REFACTORING_RULES.md` | **重构执行约束规则（强制遵守）** |
+| `REFACTORING_PLAN.md` | **V2 重构工作计划（任务/时间线）** |
+| `ARCHITECTURE_DIAGRAMS.md` | **V2 架构图谱（12 张目标架构图）** |
 | `INTEGRATION_GUIDE_V4.md` | 集成指南 — 架构、接口、数据模型定义 |
 | `IMPLEMENTATION_COMPLETE.md` | 完整实现代码 — 所有模块可直接使用 |
 | `ARCHITECTURE_V4_OPENSOURCE.md` | 开源选型论证 |
@@ -226,8 +240,13 @@ def test_<功能>_<场景>_<预期结果>():
 在开始任何开发工作之前，必须阅读以下文件（按顺序）：
 
 1. **本文件 (CLAUDE.md)** — 开发规则
-2. **PROJECT_STRUCTURE.md** — 理解项目结构
-3. **INTEGRATION_GUIDE_V4.md** — 理解架构和数据模型
-4. **IMPLEMENTATION_COMPLETE.md** — 查看已有实现代码
+2. **REFACTORING_RULES.md** — 重构执行约束（重构期间**强制遵守**）
+3. **REFACTORING_PLAN.md** — 当前重构阶段和任务
+4. **PROJECT_STRUCTURE.md** — 理解项目结构
+5. **ARCHITECTURE_DIAGRAMS.md** — V2 目标架构图谱
+6. **INTEGRATION_GUIDE_V4.md** — 理解架构和数据模型
+7. **IMPLEMENTATION_COMPLETE.md** — 查看已有实现代码
 
-每次开始新的对话时，Claude Code 应主动读取本文件确认规则。
+每次开始新的对话时，Claude Code 应主动读取本文件和 REFACTORING_RULES.md 确认规则。
+
+**重构期间的特别要求**：每次代码变更必须说明对应 REFACTORING_PLAN.md 中的哪个阶段、哪个任务，并遵守 REFACTORING_RULES.md 中的所有约束。

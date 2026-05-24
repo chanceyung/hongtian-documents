@@ -5,6 +5,15 @@ import { getDb } from "./queries/connection";
 import { eq } from "drizzle-orm";
 import { users } from "@db/schema";
 
+const FALLBACK_USER: User = {
+  id: env.desktopUserId,
+  name: "桌面用户",
+  email: "desktop@hongtian.ai",
+  role: "admin",
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
 export type TrpcContext = {
   req: Request;
   resHeaders: Headers;
@@ -17,19 +26,23 @@ export async function createContext(
   let user: User | undefined;
 
   if (env.isDesktop) {
-    const db = await getDb();
-    const rows = await db.select().from(users).where(eq(users.id, env.desktopUserId)).limit(1);
-    if (rows.length > 0) user = rows[0];
-    else {
-      await db.insert(users).values({ id: env.desktopUserId, name: "桌面用户", role: "admin" });
-      const created = await db.select().from(users).where(eq(users.id, env.desktopUserId)).limit(1);
-      if (created.length > 0) user = created[0];
+    try {
+      const db = await getDb();
+      const rows = await db.select().from(users).where(eq(users.id, env.desktopUserId)).limit(1);
+      if (rows.length > 0) user = rows[0];
+      else {
+        await db.insert(users).values({ id: env.desktopUserId, name: "桌面用户", role: "admin" });
+        const created = await db.select().from(users).where(eq(users.id, env.desktopUserId)).limit(1);
+        if (created.length > 0) user = created[0];
+      }
+    } catch (err) {
+      console.error("[Context] Failed to init desktop user:", err);
     }
   }
 
   return {
     req: opts.req,
     resHeaders: opts.resHeaders,
-    user: user as User,
+    user: user ?? FALLBACK_USER,
   };
 }

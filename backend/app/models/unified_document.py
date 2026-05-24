@@ -21,6 +21,11 @@ class TextElement(BaseModel):
     level: int = 0  # 0=正文, 1=一级标题, 2=二级...
     style: str = "Normal"
     fingerprint: str = ""
+    original_font: str | None = None
+    original_size: float | None = None
+    original_color: str | None = None
+    reading_order: int = 0
+    importance: float = 0.5
 
 
 class ImageElement(BaseModel):
@@ -32,6 +37,10 @@ class ImageElement(BaseModel):
     height: int = 0
     hash: str = ""
     alt_text: str = ""
+    dpi: int = 0
+    quality_score: float = 0.0
+    needs_supplement: bool = False
+    supplement_source: str = "original"
 
 
 class TableElement(BaseModel):
@@ -62,6 +71,16 @@ class ContentFingerprint(BaseModel):
     total_chars: int
 
 
+class PageLayout(BaseModel):
+    """页面版式信息"""
+    page_number: int
+    layout_type: str = "unknown"  # cover/text_image/data_card/two_column/full_text
+    visual_hierarchy: list[str] = []
+    whitespace_ratio: float = 0.0
+    dominant_color: str = ""
+    original_structure: dict = {}
+
+
 class UnifiedDocument(BaseModel):
     """统一文档模型 — 所有模块的数据交换格式"""
     source_file: str
@@ -76,6 +95,9 @@ class UnifiedDocument(BaseModel):
     total_pages: int = 0
     parse_method: str = ""
     parse_warnings: list[str] = []
+    page_layouts: list[PageLayout] = []
+    complexity_score: float = 0.0
+    processing_path: str = "standard"
 
     def compute_fingerprint(self) -> ContentFingerprint:
         return ContentFingerprint(

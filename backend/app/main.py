@@ -144,7 +144,6 @@ async def health():
     except Exception as e:
         checks["output_dir"] = {"status": "error", "detail": str(e)[:100]}
 
-    # Disk space check
     try:
         disk_usage = shutil.disk_usage(str(output_dir))
         free_gb = disk_usage.free / (1024 ** 3)
@@ -156,8 +155,17 @@ async def health():
     except Exception as e:
         checks["disk"] = {"status": "error", "detail": str(e)[:100]}
 
-    all_ok = all(c.get("status") in ("ok", "unavailable") for c in checks.values())
-    has_degraded = any(c.get("status") == "unavailable" for c in checks.values())
+    try:
+        from app.services.llm_client import LLMClient
+        llm = LLMClient(api_key="health-check", base_url="https://open.bigmodel.cn/api/paas/v4")
+        checks["llm"] = {"status": "configured", "model": llm.model}
+    except Exception as e:
+        checks["llm"] = {"status": "error", "detail": str(e)[:100]}
+
+    checks["active_tasks"] = get_active_count()
+
+    all_ok = all(c.get("status") in ("ok", "unavailable", "configured") for c in checks.values() if isinstance(c, dict))
+    has_degraded = any(isinstance(c, dict) and c.get("status") == "unavailable" for c in checks.values())
 
     if all_ok and not has_degraded:
         status = "ok"
@@ -167,6 +175,12 @@ async def health():
         status = "unhealthy"
 
     return {"status": status, "version": "4.0.0", "checks": checks}
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics():
+    from app.core.metrics import metrics_response
+    return metrics_response()
 
 
 # ─── 桌面打包模式入口 ────────────────────────────────────────────────────────

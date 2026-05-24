@@ -55,6 +55,16 @@ class LLMClient:
                 "output_tokens": resp.usage.completion_tokens,
             }
             self.cost_tracker.track(model, usage)
+            try:
+                from app.core.metrics import record_llm_usage, record_llm_request
+                record_llm_usage(
+                    model, resp.usage.prompt_tokens,
+                    resp.usage.completion_tokens,
+                    self.cost_tracker.get_summary().get("total_cost", 0),
+                )
+                record_llm_request(model, "success")
+            except Exception:
+                pass
 
         return content, usage
 

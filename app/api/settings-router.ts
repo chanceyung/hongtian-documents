@@ -4,6 +4,26 @@ import { getDb, saveDatabase } from "./queries/connection";
 import { userSettings } from "@db/schema";
 import { eq } from "drizzle-orm";
 
+const PYTHON_SYNC_TIMEOUT = 3000;
+
+function syncToPython(apiKey: string, model: string): void {
+  const pythonPort = process.env.PYTHON_BACKEND_PORT || "8000";
+  const url = `http://127.0.0.1:${pythonPort}/api/api-keys/save`;
+
+  fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: "desktop",
+      zhipu_api_key: apiKey,
+      zhipu_model: model,
+    }),
+    signal: AbortSignal.timeout(PYTHON_SYNC_TIMEOUT),
+  }).catch(() => {
+    // Python backend not reachable — non-fatal
+  });
+}
+
 export const settingsRouter = createRouter({
   get: publicQuery.query(async ({ ctx }) => {
     const db = await getDb();
@@ -22,27 +42,6 @@ export const settingsRouter = createRouter({
     const [existing] = await db.select().from(userSettings)
       .where(eq(userSettings.userId, ctx.user.id));
 
-    let pythonSyncOk = true;
-
-    const syncToPython = async () => {
-      if (!input.zhipuApiKey) return;
-      try {
-        const pythonPort = process.env.PYTHON_BACKEND_PORT || "8000";
-        const resp = await fetch(`http://127.0.0.1:${pythonPort}/api/api-keys/save`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            session_id: "desktop",
-            zhipu_api_key: input.zhipuApiKey,
-            zhipu_model: input.zhipuModel,
-          }),
-        });
-        if (!resp.ok) pythonSyncOk = false;
-      } catch {
-        pythonSyncOk = false;
-      }
-    };
-
     if (existing) {
       await db.update(userSettings).set({
         zhipuApiKey: input.zhipuApiKey,
@@ -53,8 +52,6 @@ export const settingsRouter = createRouter({
       }).where(eq(userSettings.id, existing.id));
       const [updated] = await db.select().from(userSettings).where(eq(userSettings.id, existing.id));
       saveDatabase();
-      await syncToPython();
-      return { ...updated, _pythonSyncOk: pythonSyncOk };
     } else {
       await db.insert(userSettings).values({
         userId: ctx.user.id,
@@ -63,12 +60,18 @@ export const settingsRouter = createRouter({
         defaultFormat: input.defaultFormat,
         defaultTemplate: input.defaultTemplate,
       });
-      const rows = await db.select().from(userSettings)
-        .where(eq(userSettings.userId, ctx.user.id)).limit(1);
       saveDatabase();
-      await syncToPython();
-      return { ...rows[0], _pythonSyncOk: pythonSyncOk };
     }
+
+    // Fire-and-forget: sync to Python backend without blocking the response
+    if (input.zhipuApiKey) {
+      syncToPython(input.zhipuApiKey, input.zhipuModel);
+    }
+
+    // Re-fetch to return latest data
+    const [result] = await db.select().from(userSettings)
+      .where(eq(userSettings.userId, ctx.user.id));
+    return result;
   }),
 
   testZhipuKey: publicQuery.input(z.object({
@@ -86,6 +89,7 @@ export const settingsRouter = createRouter({
           messages: [{ role: "user", content: "Hi" }],
           max_tokens: 5,
         }),
+        signal: AbortSignal.timeout(10_000),
       });
       if (response.status === 200) {
         return { valid: true, message: "API Key 有效" };

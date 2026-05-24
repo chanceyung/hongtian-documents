@@ -10,9 +10,7 @@ export const trpc = createTRPCReact<AppRouter>();
 const queryClient = new QueryClient({
   defaultOptions: {
     mutations: {
-      onError: (err) => {
-        console.error("[tRPC Mutation Error]", err.message);
-      },
+      retry: 0,
     },
     queries: {
       retry: 1,
@@ -26,10 +24,13 @@ const trpcClient = trpc.createClient({
       url: "/api/trpc",
       transformer: superjson,
       fetch(input, init) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15_000);
         return globalThis.fetch(input, {
           ...(init ?? {}),
           credentials: "include",
-        });
+          signal: init?.signal ?? controller.signal,
+        }).finally(() => clearTimeout(timeout));
       },
     }),
   ],

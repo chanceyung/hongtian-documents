@@ -87,8 +87,13 @@ async function startServer(): Promise<void> {
   console.log(`[Main] Boot: ${bootScript}`)
   console.log(`[Main] DB: ${env.DATABASE_PATH}`)
 
-  // 用系统 Node 而不是 Electron 的 Node（Electron 不支持 ESM）
-  const nodeExe = platform() === 'win32' ? 'node' : 'node'
+  // 用内嵌的 node.exe（打包模式）或系统 Node（开发模式）
+  let nodeExe: string
+  if (app.isPackaged) {
+    nodeExe = join(resPath, 'resources', 'node', 'node.exe')
+  } else {
+    nodeExe = 'node'
+  }
   serverProcess = spawn(nodeExe, [bootScript], {
     cwd: join(resPath, 'resources', 'app-server'),
     env,

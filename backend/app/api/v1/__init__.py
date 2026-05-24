@@ -125,6 +125,38 @@ async def get_status(task_id: str):
     return task
 
 
+@router.get("/plan/{task_id}", summary="查询执行计划", description="获取指定任务的执行计划：复杂度评分、处理路径、预计耗时。")
+async def get_plan(task_id: str):
+    _validate_task_id(task_id)
+    task = await task_db.get_task(task_id)
+    if not task:
+        raise HTTPException(404, "任务不存在")
+
+    from app.core.checkpoint import CheckpointDB
+    from app.core.config import settings
+    import aiosqlite
+
+    output_dir = Path(settings.OUTPUT_DIR) / task_id
+    summary_path = output_dir / "task_summary.json"
+    if summary_path.exists():
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        return {
+            "task_id": task_id,
+            "status": task["status"],
+            "output_path": summary.get("output_path", ""),
+            "fidelity_score": summary.get("fidelity_score", 0),
+            "skill": summary.get("skill", "standard"),
+            "usage": summary.get("usage", {}),
+        }
+
+    return {
+        "task_id": task_id,
+        "status": task["status"],
+        "progress": task["progress"],
+        "message": task.get("message", ""),
+    }
+
+
 @router.get("/tasks", summary="任务列表", description="获取任务列表，支持按 session_id 过滤。")
 async def list_tasks(session_id: str = "", limit: int = 50):
     return await task_db.list_tasks(session_id, limit)
@@ -140,6 +172,9 @@ async def task_events(task_id: str):
     async def event_stream():
         last_status = None
         last_progress = None
+        last_fidelity = None
+        last_cost = None
+        last_checkpoint = None
         idle_ticks = 0
         while idle_ticks < 600:
             task = await task_db.get_task(task_id)
@@ -148,28 +183,72 @@ async def task_events(task_id: str):
 
             status = task["status"]
             progress = task["progress"]
+            fidelity_score = task.get("fidelity_score")
+            cost_data = task.get("cost")
+            checkpoint_phase = task.get("checkpoint_phase")
 
             if status != last_status or progress != last_progress:
                 data = json.dumps({
                     "status": status,
                     "progress": progress,
                     "message": task.get("message", ""),
-                    "fidelity_score": task.get("fidelity_score"),
+                    "fidelity_score": fidelity_score,
                 }, ensure_ascii=False)
-                yield f"data: {data}\n\n"
+                yield f"event: status\ndata: {data}\n\n"
+
+                if status != last_status and status not in ("completed", "failed"):
+                    phase_msg = _phase_description(status)
+                    if phase_msg:
+                        yield f"event: agent_thinking\ndata: {json.dumps({'message': phase_msg, 'phase': status}, ensure_ascii=False)}\n\n"
+
+                if fidelity_score is not None and fidelity_score != last_fidelity:
+                    yield f"event: quality_score\ndata: {json.dumps({'score': fidelity_score}, ensure_ascii=False)}\n\n"
+                    last_fidelity = fidelity_score
+
                 last_status = status
                 last_progress = progress
                 idle_ticks = 0
-            else:
-                idle_ticks += 1
+
+            if cost_data and cost_data != last_cost:
+                yield f"event: cost_update\ndata: {json.dumps(cost_data if isinstance(cost_data, dict) else {'total_cost': cost_data}, ensure_ascii=False)}\n\n"
+                last_cost = cost_data
+
+            if checkpoint_phase and checkpoint_phase != last_checkpoint:
+                yield f"event: checkpoint_saved\ndata: {json.dumps({'phase': checkpoint_phase}, ensure_ascii=False)}\n\n"
+                last_checkpoint = checkpoint_phase
 
             if status in ("completed", "failed"):
-                yield f"data: {json.dumps({'status': status, 'progress': progress, 'done': True})}\n\n"
+                final = {
+                    "status": status,
+                    "progress": progress,
+                    "done": True,
+                    "output_path": task.get("output_path", ""),
+                    "fidelity_score": fidelity_score,
+                }
+                yield f"event: done\ndata: {json.dumps(final, ensure_ascii=False)}\n\n"
                 break
+
+            if status == last_status and progress == last_progress:
+                idle_ticks += 1
 
             await asyncio.sleep(1)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+def _phase_description(status: str) -> str:
+    mapping = {
+        "planning": "正在分析文档复杂度，规划处理路径...",
+        "parsing": "正在解析文档，提取文字和图片...",
+        "analyzing": "正在分析文档结构和内容语义...",
+        "designing": "正在设计杂志级排版方案...",
+        "supplementing": "正在为缺失图片搜索补充素材...",
+        "rendering": "正在渲染杂志级输出...",
+        "verifying": "正在进行内容保真和视觉质量校验...",
+        "repairing": "发现质量问题，正在精准修复...",
+        "finalizing": "正在生成最终输出和保真报告...",
+    }
+    return mapping.get(status, "")
 
 
 @router.delete("/tasks/{task_id}", summary="删除任务", description="删除指定任务及其关联文件。正在处理的任务无法删除。")
@@ -371,6 +450,19 @@ async def _run_pipeline(
 
         # Step 5: Render
         await task_db.update_task(task_id, status="rendering", progress=0.65)
+        edit_plan = state.get("edit_plan")
+        doc = state["document"]
+        if edit_plan and doc:
+            from app.agents.renderer_agent import RendererAgent
+            renderer_agent = RendererAgent()
+            template_dir = Path(settings.MAGAZINE_TEMPLATES_DIR)
+            total_pages = len(edit_plan.pages) if edit_plan.pages else 1
+            async for page_preview in renderer_agent.render_streaming(edit_plan, doc, template_dir):
+                page_progress = 0.65 + 0.10 * (page_preview.page_number / total_pages)
+                await task_db.update_task(
+                    task_id, progress=round(page_progress, 2),
+                    message=f"已渲染第 {page_preview.page_number}/{total_pages} 页",
+                )
         state.update(await renderer_node(state))
 
         # Step 6: Verify fidelity

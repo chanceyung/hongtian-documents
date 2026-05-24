@@ -11,9 +11,12 @@ from typing import TypedDict
 from langgraph.graph import StateGraph, END
 
 from app.core.logging import get_logger
+from app.core.recovery import RecoveryManager
+from app.core.task_tracker import get_task_tracker, start_task, end_task, is_shutting_down
 from app.models.unified_document import UnifiedDocument
 from app.models.edit_actions import MagazineEditPlan, EditAction, SlideEditPlan
 from app.models.design_spec import DesignSpec
+from app.models.execution_plan import ExecutionPlan
 from app.services.llm_client import LLMClient
 from app.skills.types import SkillDefinition
 
@@ -23,8 +26,10 @@ logger = get_logger(__name__)
 class PipelineState(TypedDict, total=False):
     file_path: str
     session_id: str
+    task_id: str
     output_format: str
     template_id: str
+    execution_plan: ExecutionPlan
     document: UnifiedDocument
     parse_warnings: list[str]
     analysis: dict
@@ -36,10 +41,67 @@ class PipelineState(TypedDict, total=False):
     fidelity_passed: bool
     fidelity_issues: list[dict]
     repair_count: int
+    recovery_messages: list[str]
     # LLM + 技能（运行时注入）
     llm: LLMClient
     skill_name: str
     skill: SkillDefinition
+
+
+async def _run_with_recovery(
+    agent_name: str,
+    state: PipelineState,
+    primary_fn: object,
+    fallback_fn: object | None = None,
+    **kwargs: object,
+) -> dict:
+    """包裹 agent 调用，失败时走 RecoveryManager 三级恢复。"""
+    from app.core.recovery import RecoveryManager, RecoveryAction
+
+    task_id = state.get("task_id", "unknown")
+    mgr = _recovery_mgr
+
+    try:
+        return await primary_fn(state, **kwargs)
+    except Exception as e:
+        result = await mgr.recover(agent_name, e, task_id, fallback_fn=fallback_fn)
+
+        if result.action == RecoveryAction.RETRY:
+            raise
+        if result.action == RecoveryAction.DEGRADE and result.success:
+            msgs = list(state.get("recovery_messages", []))
+            msgs.append(result.message)
+            return {"recovery_messages": msgs}
+        raise
+
+
+_recovery_mgr = RecoveryManager()
+
+
+def _track_phase(phase_name: str):
+    """装饰器：为 pipeline node 添加阶段状态追踪，实现幂等跳过。"""
+    def decorator(fn):
+        async def wrapper(state: PipelineState) -> dict:
+            task_id = state.get("task_id", "")
+            if not task_id:
+                return await fn(state)
+
+            tracker = get_task_tracker()
+            if await tracker.is_completed(task_id, phase_name):
+                logger.info("pipeline.phase.skip", phase=phase_name, task_id=task_id, reason="already completed")
+                return {}
+
+            await tracker.mark_running(task_id, phase_name)
+            try:
+                result = await fn(state)
+                await tracker.mark_completed(task_id, phase_name)
+                return result
+            except Exception:
+                await tracker.mark_failed(task_id, phase_name)
+                raise
+        wrapper.__name__ = fn.__name__
+        return wrapper
+    return decorator
 
 
 async def _get_api_key(session_id: str) -> str:
@@ -69,17 +131,57 @@ def _skill_overrides(skill: SkillDefinition | None) -> dict:
     return overrides
 
 
+@_track_phase("plan")
+async def planner_node(state: PipelineState) -> dict:
+    from app.agents.planner_agent import PlannerAgent
+
+    logger.info("pipeline.plan.start", session_id=state["session_id"], file_path=state["file_path"])
+    agent = PlannerAgent()
+    plan = await agent.plan(Path(state["file_path"]))
+    logger.info(
+        "pipeline.plan.done",
+        session_id=state["session_id"],
+        score=plan.complexity_score,
+        path=plan.processing_path,
+        est_time=plan.estimated_time_seconds,
+    )
+    return {"execution_plan": plan}
+
+
+def should_skip_analyzer(state: PipelineState) -> str:
+    plan: ExecutionPlan | None = state.get("execution_plan")
+    if plan and plan.skip_analyzer:
+        return "skip_to_design"
+    return "analyze"
+
+
+@_track_phase("parse")
 async def parser_node(state: PipelineState) -> dict:
     from app.agents.parser_agent import ParserAgent
+    from app.core.recovery import RecoveryAction
 
     logger.info("pipeline.parse.start", session_id=state["session_id"], file_path=state["file_path"])
     agent = ParserAgent()
-    doc = await agent.parse(Path(state["file_path"]), state["session_id"])
-    return {"document": doc, "parse_warnings": doc.parse_warnings}
+    try:
+        doc = await agent.parse(Path(state["file_path"]), state["session_id"])
+        return {"document": doc, "parse_warnings": doc.parse_warnings}
+    except Exception as e:
+        result = await _recovery_mgr.recover("parser", e, state.get("task_id", ""))
+        if result.action == RecoveryAction.RETRY:
+            raise
+        if result.action == RecoveryAction.DEGRADE and result.success:
+            logger.warning("pipeline.parse.degraded", fallback=result.fallback_used)
+            doc = await agent.parse(Path(state["file_path"]), state["session_id"])
+            msgs = list(state.get("recovery_messages", []))
+            msgs.append(result.message)
+            return {"document": doc, "parse_warnings": doc.parse_warnings, "recovery_messages": msgs}
+        raise
 
 
+@_track_phase("analyze")
 async def analyzer_node(state: PipelineState) -> dict:
     from app.agents.analyzer_agent import AnalyzerAgent
+    from app.core.recovery import RecoveryAction
 
     logger.info("pipeline.analyze.start", session_id=state["session_id"])
     llm: LLMClient = state["llm"]
@@ -87,23 +189,34 @@ async def analyzer_node(state: PipelineState) -> dict:
 
     agent = AnalyzerAgent(llm)
 
-    # 技能附加指令
-    if skill and skill.analyzer_instructions:
-        doc = state["document"]
-        extra_analysis = await llm.chat_json(
-            system=f"对文档进行补充分析。{skill.analyzer_instructions}\n返回 JSON 对象。",
-            user="\n".join(t.content[:200] for t in doc.texts[:20])[:4000],
-        )
+    try:
+        # 技能附加指令
+        if skill and skill.analyzer_instructions:
+            doc = state["document"]
+            extra_analysis = await llm.chat_json(
+                system=f"对文档进行补充分析。{skill.analyzer_instructions}\n返回 JSON 对象。",
+                user="\n".join(t.content[:200] for t in doc.texts[:20])[:4000],
+            )
+            analysis = await agent.analyze(state["document"])
+            analysis["skill_analysis"] = extra_analysis
+            return {"analysis": analysis}
+
         analysis = await agent.analyze(state["document"])
-        analysis["skill_analysis"] = extra_analysis
         return {"analysis": analysis}
+    except Exception as e:
+        result = await _recovery_mgr.recover("analyzer", e, state.get("task_id", ""))
+        if result.action == RecoveryAction.RETRY:
+            raise
+        if result.action == RecoveryAction.DEGRADE and result.success:
+            logger.warning("pipeline.analyze.degraded", fallback=result.fallback_used)
+            return {"analysis": {"mode": "minimal", "degraded": True}}
+        raise
 
-    analysis = await agent.analyze(state["document"])
-    return {"analysis": analysis}
 
-
+@_track_phase("design")
 async def designer_node(state: PipelineState) -> dict:
     from app.agents.designer_agent import DesignerAgent
+    from app.core.recovery import RecoveryAction
 
     logger.info("pipeline.design.start", session_id=state["session_id"], template_id=state["template_id"])
     llm: LLMClient = state["llm"]
@@ -111,13 +224,31 @@ async def designer_node(state: PipelineState) -> dict:
 
     agent = DesignerAgent(llm)
     overrides = _skill_overrides(skill)
-    plan = await agent.design(
-        state["document"],
-        state["analysis"],
-        state["template_id"],
-        skill_overrides=overrides if overrides else None,
-    )
-    return {"edit_plan": plan, "design_spec": plan.design_spec}
+
+    try:
+        plan = await agent.design(
+            state["document"],
+            state["analysis"],
+            state["template_id"],
+            skill_overrides=overrides if overrides else None,
+        )
+        return {"edit_plan": plan, "design_spec": plan.design_spec}
+    except Exception as e:
+        result = await _recovery_mgr.recover("designer", e, state.get("task_id", ""))
+        if result.action == RecoveryAction.RETRY:
+            raise
+        if result.action == RecoveryAction.DEGRADE and result.success:
+            logger.warning("pipeline.design.degraded", fallback=result.fallback_used)
+            plan = await agent.design(
+                state["document"],
+                state["analysis"],
+                state["template_id"],
+                skill_overrides=overrides if overrides else None,
+            )
+            msgs = list(state.get("recovery_messages", []))
+            msgs.append(result.message)
+            return {"edit_plan": plan, "design_spec": plan.design_spec, "recovery_messages": msgs}
+        raise
 
 
 async def check_missing_assets_node(state: PipelineState) -> str:
@@ -135,18 +266,44 @@ async def check_missing_assets_node(state: PipelineState) -> str:
     return "render"
 
 
+@_track_phase("supplement")
 async def supplement_node(state: PipelineState) -> dict:
     from app.agents.supplement_agent import SupplementAgent
 
+    doc = state["document"]
     llm: LLMClient = state["llm"]
+
+    missing = [
+        img for img in doc.images
+        if not img.local_path or not Path(img.local_path).exists()
+    ]
+    if not missing:
+        return {"supplemented": False}
+
     agent = SupplementAgent(llm, state["session_id"])
-    await agent.supplement(state["document"], state["edit_plan"])
+    # supplement_node can run before designer; create a minimal plan for missing images
+    from app.models.edit_actions import MagazineEditPlan, SlideEditPlan, EditAction
+    actions = []
+    for img in missing:
+        actions.append(EditAction(
+            type="replace_image",
+            target_selector=f".{img.id}",
+            source_id=img.id,
+        ))
+    mini_plan = MagazineEditPlan(
+        document_id="supplement_prep",
+        template_id="",
+        pages=[SlideEditPlan(page_number=img.page + 1, template_page="content", actions=[a]) for a, img in zip(actions, missing)],
+    )
+    await agent.supplement(doc, mini_plan)
     return {"supplemented": True}
 
 
+@_track_phase("render")
 async def renderer_node(state: PipelineState) -> dict:
     from app.agents.renderer_agent import RendererAgent
     from app.core.config import settings
+    from app.core.recovery import RecoveryAction
 
     logger.info("pipeline.render.start", session_id=state["session_id"], output_format=state["output_format"])
     agent = RendererAgent()
@@ -154,27 +311,38 @@ async def renderer_node(state: PipelineState) -> dict:
     output_dir = Path(settings.OUTPUT_DIR) / state["task_id"]
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if state["output_format"] == "pdf":
-        output_path = output_dir / "magazine.pdf"
-        path = await agent.render_pdf(
-            state["edit_plan"], state["document"],
-            template_dir / "pdf", output_path,
-        )
-    else:
-        output_path = output_dir / "magazine.pptx"
-        path = await agent.render_pptx(
-            state["edit_plan"], state["document"],
-            template_dir / "pptx", output_path,
-        )
+    try:
+        if state["output_format"] == "pdf":
+            output_path = output_dir / "magazine.pdf"
+            path = await agent.render_pdf(
+                state["edit_plan"], state["document"],
+                template_dir / "pdf", output_path,
+            )
+        else:
+            output_path = output_dir / "magazine.pptx"
+            path = await agent.render_pptx(
+                state["edit_plan"], state["document"],
+                template_dir / "pptx", output_path,
+            )
+        return {"output_path": str(path)}
+    except Exception as e:
+        result = await _recovery_mgr.recover("renderer", e, state.get("task_id", ""))
+        if result.action == RecoveryAction.RETRY:
+            raise
+        if result.action == RecoveryAction.DEGRADE and result.success:
+            logger.warning("pipeline.render.degraded", fallback=result.fallback_used)
+            msgs = list(state.get("recovery_messages", []))
+            msgs.append(result.message)
+            return {"output_path": "", "recovery_messages": msgs}
+        raise
 
-    return {"output_path": str(path)}
 
-
+@_track_phase("verify")
 async def fidelity_node(state: PipelineState) -> dict:
-    from app.agents.fidelity_agent import FidelityAgent
+    from app.agents.quality_agent import QualityAgent
     from app.core.config import settings
 
-    logger.info("pipeline.fidelity.start", session_id=state["session_id"])
+    logger.info("pipeline.quality.start", session_id=state["session_id"])
     llm: LLMClient = state["llm"]
     skill: SkillDefinition | None = state.get("skill")
 
@@ -182,8 +350,11 @@ async def fidelity_node(state: PipelineState) -> dict:
     if skill and skill.fidelity_threshold is not None:
         threshold = skill.fidelity_threshold
 
-    agent = FidelityAgent(llm, threshold=threshold)
-    result = await agent.verify(state["document"], state["edit_plan"])
+    agent = QualityAgent(llm, threshold=threshold)
+    result = await agent.verify(
+        state["document"], state["edit_plan"],
+        state.get("output_path", ""),
+    )
     return {
         "fidelity_score": result.overall_score,
         "fidelity_passed": result.passed,
@@ -221,6 +392,7 @@ async def repair_node(state: PipelineState) -> dict:
     return {"edit_plan": plan, "repair_count": repair_count}
 
 
+@_track_phase("finalize")
 async def finalize_node(state: PipelineState) -> dict:
     from app.core.config import settings
 
@@ -241,6 +413,16 @@ async def finalize_node(state: PipelineState) -> dict:
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8",
     )
+
+    try:
+        from app.core.metrics import record_pages, record_task_end
+        doc = state.get("document")
+        if doc:
+            record_pages(doc.total_pages, state.get("output_format", "pdf"))
+        record_task_end("completed")
+    except Exception:
+        pass
+
     return {}
 
 
@@ -250,29 +432,73 @@ def should_repair(state: PipelineState) -> str:
     return "finalize"
 
 
+def _needs_supplement(state: PipelineState) -> str:
+    """analyze 后决定是否启动 supplement 分支。"""
+    doc = state.get("document")
+    if not doc:
+        return "design_only"
+    missing = [
+        img for img in doc.images
+        if not img.local_path or not Path(img.local_path).exists()
+    ]
+    return "parallel" if missing else "design_only"
+
+
+async def merge_node(state: PipelineState) -> dict:
+    """合并 design 和 supplement 的结果，将补充素材合并到 edit_plan。"""
+    doc = state["document"]
+    plan = state.get("edit_plan")
+    if not plan:
+        return {}
+
+    for img in doc.images:
+        if img.local_path and Path(img.local_path).exists():
+            continue
+        for page in plan.pages:
+            for action in page.actions:
+                if action.type == "replace_image" and action.source_id == img.id:
+                    if img.local_path and Path(img.local_path).exists():
+                        break
+
+    return {}
+
+
 def build_magazine_pipeline():
     graph = StateGraph(PipelineState)
 
+    graph.add_node("plan", planner_node)
     graph.add_node("parse", parser_node)
     graph.add_node("analyze", analyzer_node)
     graph.add_node("design", designer_node)
     graph.add_node("supplement", supplement_node)
+    graph.add_node("merge", merge_node)
     graph.add_node("render", renderer_node)
     graph.add_node("verify", fidelity_node)
     graph.add_node("repair", repair_node)
     graph.add_node("finalize", finalize_node)
 
-    graph.set_entry_point("parse")
-    graph.add_edge("parse", "analyze")
-    graph.add_edge("analyze", "design")
+    graph.set_entry_point("plan")
+    graph.add_edge("plan", "parse")
 
     graph.add_conditional_edges(
-        "design",
-        check_missing_assets_node,
-        {"supplement": "supplement", "render": "render"},
+        "parse",
+        should_skip_analyzer,
+        {"analyze": "analyze", "skip_to_design": "design"},
     )
 
-    graph.add_edge("supplement", "render")
+    graph.add_conditional_edges(
+        "analyze",
+        _needs_supplement,
+        {
+            "parallel": "supplement",
+            "design_only": "design",
+        },
+    )
+
+    graph.add_edge("analyze", "design")
+    graph.add_edge("supplement", "merge")
+    graph.add_edge("design", "merge")
+    graph.add_edge("merge", "render")
     graph.add_edge("render", "verify")
 
     graph.add_conditional_edges(

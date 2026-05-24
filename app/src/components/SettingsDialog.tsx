@@ -36,7 +36,6 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const [testMessage, setTestMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [syncWarning, setSyncWarning] = useState(false);
   const { user } = useAuth();
 
   const utils = trpc.useUtils();
@@ -45,13 +44,12 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     onSuccess: (data: any) => {
       utils.settings.get.invalidate();
       setIsSaving(false);
-      if (data?._pythonSyncOk === false) {
-        setSyncWarning(true);
-        setTimeout(() => setSyncWarning(false), 5000);
-      } else {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
-      }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    },
+    onError: (err) => {
+      setIsSaving(false);
+      console.error("[Settings] Save failed:", err.message);
     },
   });
   const testKey = trpc.settings.testZhipuKey.useMutation({
@@ -310,12 +308,6 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                   {saved ? <Check className="w-3.5 h-3.5" /> : isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
                   {saved ? "已保存" : isSaving ? "保存中" : "保存设置"}
                 </button>
-                {syncWarning && (
-                  <p className="text-amber-400 text-[11px] flex items-center gap-1 mt-1">
-                    <AlertCircle className="w-3 h-3" />
-                    设置已保存，但 AI 引擎同步失败，请重启应用
-                  </p>
-                )}
               </div>
             )}
           </motion.div>

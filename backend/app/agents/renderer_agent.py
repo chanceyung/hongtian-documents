@@ -1,13 +1,31 @@
-"""Renderer Agent — 双轨渲染：PDF路径 + PPTX路径"""
+"""Renderer Agent — 双轨渲染：PDF路径 + PPTX路径 + 页级并行 + 渐进式输出"""
+from __future__ import annotations
+
+import asyncio
 import base64
 from pathlib import Path
+from typing import AsyncGenerator
 
+from pydantic import BaseModel
+
+from app.core.logging import get_logger
 from app.models.edit_actions import MagazineEditPlan
 from app.models.unified_document import UnifiedDocument
 
+logger = get_logger(__name__)
+
+
+class PagePreview(BaseModel):
+    page_number: int
+    svg_content: str = ""
+    status: str = "completed"
+
 
 class RendererAgent:
-    """根据输出格式选择渲染引擎"""
+    """根据输出格式选择渲染引擎，支持页级并行。"""
+
+    def __init__(self, max_concurrency: int = 4) -> None:
+        self._semaphore = asyncio.Semaphore(max_concurrency)
 
     async def render_pptx(
         self, plan: MagazineEditPlan, doc: UnifiedDocument, template_dir: Path, output_path: Path,
@@ -16,13 +34,19 @@ class RendererAgent:
         from app.exporters.ppt_master.finalize_svg import SvgFinalizer
 
         template_root = template_dir / plan.template_id
-        svg_pages: list[str] = []
 
-        for page in plan.pages:
-            svg_template = self._load_svg_template(template_root, page.template_page)
-            if svg_template:
-                svg_filled = self._apply_edit_actions_svg(svg_template, page, doc)
-                svg_pages.append(svg_filled)
+        tasks = [
+            self._render_single_svg(template_root, page, doc)
+            for page in plan.pages
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        svg_pages: list[str] = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.warning("render.page_failed", page=i, error=str(result)[:200])
+            elif result:
+                svg_pages.append(result)
 
         if not svg_pages:
             svg_pages.append(self._create_fallback_svg(plan, doc))
@@ -49,6 +73,34 @@ class RendererAgent:
 
         renderer = HybridPdfRenderer()
         return await renderer.render(plan, doc, template_dir, output_path)
+
+    async def render_streaming(
+        self, plan: MagazineEditPlan, doc: UnifiedDocument, template_dir: Path,
+    ) -> AsyncGenerator[PagePreview, None]:
+        """逐页渲染并产出预览，用于渐进式输出。"""
+        template_root = template_dir / plan.template_id
+
+        for page in plan.pages:
+            try:
+                svg = await self._render_single_svg(template_root, page, doc)
+                yield PagePreview(
+                    page_number=page.page_number,
+                    svg_content=svg or "",
+                    status="completed",
+                )
+            except Exception as e:
+                logger.warning("render.streaming_page_failed", page=page.page_number, error=str(e)[:200])
+                yield PagePreview(
+                    page_number=page.page_number,
+                    status="failed",
+                )
+
+    async def _render_single_svg(self, template_root: Path, page, doc: UnifiedDocument) -> str | None:
+        async with self._semaphore:
+            svg_template = self._load_svg_template(template_root, page.template_page)
+            if svg_template:
+                return self._apply_edit_actions_svg(svg_template, page, doc)
+        return None
 
     def _load_svg_template(self, template_root: Path, layout_type: str) -> str | None:
         layout_to_file = {

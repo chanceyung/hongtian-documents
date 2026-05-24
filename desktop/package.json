@@ -71,7 +71,11 @@
         ]
       },
       {
-        "from": "frontend/out",
+        "from": "resources/node",
+        "to": "node"
+      },
+      {
+        "from": "resources/frontend",
         "to": "frontend"
       }
     ],

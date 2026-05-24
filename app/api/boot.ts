@@ -21,19 +21,17 @@ const MIME: Record<string, string> = {
   ".md": "text/markdown",
 };
 
+const PYTHON_PORT = parseInt(process.env.PYTHON_BACKEND_PORT || "8000");
+
 const app = new Hono();
 
 app.use(bodyLimit({ maxSize: 100 * 1024 * 1024 }));
-
-// ── Proxy to Python FastAPI backend ──────────────────────────────────────
-const PYTHON_PORT = parseInt(process.env.PYTHON_BACKEND_PORT || "8000");
 
 async function proxyToPython(c: any): Promise<Response> {
   const target = `http://127.0.0.1:${PYTHON_PORT}${c.req.path}`;
   const method = c.req.method;
   const headers: Record<string, string> = {};
   c.req.raw.headers.forEach((v: string, k: string) => {
-    // Skip host and connection headers that would conflict
     if (k.toLowerCase() !== "host" && k.toLowerCase() !== "connection") {
       headers[k] = v;
     }
@@ -44,42 +42,50 @@ async function proxyToPython(c: any): Promise<Response> {
     body = await c.req.raw.arrayBuffer();
   }
 
-  const resp = await fetch(target, { method, headers, body });
-  // Check if SSE stream
-  const contentType = resp.headers.get("content-type") || "";
-  if (contentType.includes("text/event-stream")) {
-    return new Response(resp.body, {
-      status: resp.status,
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const resp = await fetch(target, { method, headers, body, signal: controller.signal });
+    clearTimeout(timeout);
+
+    const contentType = resp.headers.get("content-type") || "";
+    if (contentType.includes("text/event-stream")) {
+      return new Response(resp.body, {
+        status: resp.status,
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
+    const respHeaders = new Headers();
+    resp.headers.forEach((v: string, k: string) => {
+      if (k.toLowerCase() !== "transfer-encoding") respHeaders.set(k, v);
     });
+    return new Response(resp.body, { status: resp.status, headers: respHeaders });
+  } finally {
+    clearTimeout(timeout);
   }
-  // Regular response
-  const respHeaders = new Headers();
-  resp.headers.forEach((v: string, k: string) => {
-    if (k.toLowerCase() !== "transfer-encoding") respHeaders.set(k, v);
-  });
-  return new Response(resp.body, { status: resp.status, headers: respHeaders });
 }
 
 app.all("/api/magazine/*", async (c) => {
   try {
     return await proxyToPython(c);
-  } catch (err) {
-    console.error("[Proxy /api/magazine]", err);
-    return c.json({ error: "Python backend unavailable", detail: String(err) }, 503);
+  } catch (err: any) {
+    const reason = err?.name === "AbortError" ? "timeout" : String(err);
+    console.error("[Proxy /api/magazine]", reason);
+    return c.json({ error: "Python backend unavailable", detail: reason }, 503);
   }
 });
 
 app.all("/api/api-keys/*", async (c) => {
   try {
     return await proxyToPython(c);
-  } catch (err) {
-    console.error("[Proxy /api/api-keys]", err);
-    return c.json({ error: "Python backend unavailable", detail: String(err) }, 503);
+  } catch (err: any) {
+    const reason = err?.name === "AbortError" ? "timeout" : String(err);
+    console.error("[Proxy /api/api-keys]", reason);
+    return c.json({ error: "Python backend unavailable", detail: reason }, 503);
   }
 });
 
@@ -92,7 +98,6 @@ app.use("/api/trpc/*", async (c) => {
   });
 });
 app.all("/api/*", (c) => {
-  // Skip routes already handled by proxy or tRPC
   if (c.req.path.startsWith("/api/magazine") || c.req.path.startsWith("/api/api-keys") || c.req.path.startsWith("/api/trpc")) {
     return c.notFound();
   }
